@@ -10,6 +10,15 @@ const {
   getSongs,
 } = require("./database.cjs");
 
+const {
+  startServer,
+  stopServer,
+  getServerStatus,
+  getServerInstance,
+  getLocalIpAddresses,
+} = require("./network-server.cjs");
+const { computeFileSha256 } = require("../server/syncServer.cjs");
+
 const SUPPORTED_EXTENSIONS = new Set([
   ".mp3",
   ".wav",
@@ -169,6 +178,121 @@ ipcMain.handle("read-music-file", async (_, filePath) => {
   }
 });
 
+ipcMain.handle("start-local-server", async (_, port) => {
+  try {
+    return await startServer(port);
+  } catch (err) {
+    console.error("Failed to start local server:", err);
+    return { running: false, error: err.message };
+  }
+});
+
+ipcMain.handle("stop-local-server", async () => {
+  return await stopServer();
+});
+
+ipcMain.handle("get-local-server-status", () => {
+  return getServerStatus();
+});
+
+ipcMain.handle("share-song-to-session", async (_, params) => {
+  const { sessionId, hostToken, songPath, title, artist, album, duration } = params || {};
+  let serverInst = getServerInstance();
+
+  // If local server is not running yet, attempt to start it
+  if (!serverInst) {
+    try {
+      await startServer(3001);
+      serverInst = getServerInstance();
+    } catch (err) {
+      console.warn("Could not auto-start local server:", err.message);
+    }
+  }
+
+  const cleanId = (sessionId || "").toUpperCase().trim();
+
+  // In-process handling if server instance is active and has the session
+  if (serverInst && serverInst.sessionManager.hasSession(cleanId)) {
+    const { sessionManager, io } = serverInst;
+
+    if (!sessionManager.isHostAuthorized(cleanId, hostToken)) {
+      return { success: false, error: "Unauthorized: host token mismatch." };
+    }
+
+    try {
+      const fsSync = require("fs");
+      if (!fsSync.existsSync(songPath)) {
+        return { success: false, error: "Audio file does not exist on disk." };
+      }
+
+      const stat = fsSync.statSync(songPath);
+      const hash = await computeFileSha256(songPath);
+      const filename = path.basename(songPath);
+
+      const trackResult = sessionManager.setTrack(cleanId, hostToken, {
+        title: title || path.parse(filename).name,
+        artist: artist || "Unknown Artist",
+        album: album || "",
+        duration: Number(duration) || 0,
+        hash,
+        size: stat.size,
+        mimeType: "audio/mpeg",
+        filename,
+        filePath: songPath,
+      });
+
+      if (!trackResult.success) {
+        return { success: false, error: trackResult.error };
+      }
+
+      // Notify all connected session participants
+      io.to(`session_${cleanId}`).emit("track-published", {
+        track: trackResult.track,
+        downloadUrl: `/api/sessions/${cleanId}/track?v=${trackResult.track.version}`,
+      });
+      io.to(`session_${cleanId}`).emit("session-updated", sessionManager.getPublicState(cleanId));
+
+      return {
+        success: true,
+        track: trackResult.track,
+        downloadUrl: `/api/sessions/${cleanId}/track?v=${trackResult.track.version}`,
+      };
+    } catch (err) {
+      console.error("Failed to share song to session:", err);
+      return { success: false, error: err.message };
+    }
+  }
+
+  // Fallback: try HTTP API on port 3001
+  try {
+    const status = getServerStatus();
+    const port = status.port || 3001;
+    const response = await fetch(`http://localhost:${port}/api/sessions/${cleanId}/track`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-host-token": hostToken || "",
+      },
+      body: JSON.stringify({
+        localFilePath: songPath,
+        title,
+        artist,
+        album,
+        duration,
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return { success: false, error: data.error || `Server responded with ${response.status}` };
+    }
+    return data;
+  } catch (httpErr) {
+    console.error("HTTP fallback share error:", httpErr);
+    return { success: false, error: "Local network server is not running or unreachable." };
+  }
+});
+
 app.whenReady().then(() => {
   initializeDatabase();
 
@@ -179,6 +303,10 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+});
+
+app.on("before-quit", async () => {
+  await stopServer();
 });
 
 app.on("window-all-closed", () => {

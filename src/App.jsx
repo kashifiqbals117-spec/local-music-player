@@ -1,21 +1,24 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "./App.css";
 
 import Sidebar from "./components/Sidebar";
 import MusicPlayer from "./components/Player/MusicPlayer";
 import useMusicLibrary from "./hooks/useMusicLibrary";
 import useAudioPlayer from "./hooks/useAudioPlayer";
+import useSyncSession from "./hooks/useSyncSession";
 
 import Home from "./pages/Home";
 import Songs from "./pages/Songs";
 import Albums from "./pages/Albums";
 import Artists from "./pages/Artists";
 import Playlists from "./pages/Playlists";
+import SyncSession from "./pages/SyncSession";
 
 function App() {
   const [activeTab, setActiveTab] = useState("songs");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("title");
+  const [activeSessionId, setActiveSessionId] = useState("");
 
   const {
     songs,
@@ -46,6 +49,30 @@ function App() {
     handleEnded,
   } = useAudioPlayer();
 
+  const syncSession = useSyncSession({
+    audioRef,
+    onLocalPlay: () => {},
+    onLocalPause: () => {},
+    onLocalSeek: (pos) => handleSeek(pos),
+  });
+
+  // Automatically switch to Sync tab if opened with ?session=XYZ
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const urlSession = params.get("session");
+      if (urlSession) {
+        const cleanId = urlSession.toUpperCase().trim();
+        setActiveTab("sync");
+        setActiveSessionId(cleanId);
+        syncSession.joinSession({
+          sessionId: cleanId,
+          name: localStorage.getItem("syncbeat_display_name") || "Guest",
+        });
+      }
+    }
+  }, []);
+
   const renderActivePage = () => {
     const commonProps = {
       songs,
@@ -68,6 +95,18 @@ function App() {
 
       case "playlists":
         return <Playlists {...commonProps} />;
+
+      case "sync":
+        return (
+          <SyncSession
+            syncSession={syncSession}
+            currentSong={currentSong}
+            onPlaySong={playSong}
+            activeSessionId={activeSessionId}
+            onSetSessionId={setActiveSessionId}
+            songs={songs}
+          />
+        );
 
       case "songs":
       default:
@@ -127,6 +166,15 @@ function App() {
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onEnded={() => handleEnded(songs)}
+        isSessionActive={Boolean(syncSession.session)}
+        onSyncPlayback={syncSession.requestSyncPlayback}
+        isResyncing={syncSession.isResyncing}
+        onShareCurrentSong={syncSession.shareSong}
+        isSharingTrack={syncSession.isSharingTrack}
+        shareSuccess={syncSession.shareSuccess}
+        isHost={Boolean(syncSession.hostToken)}
+        sharedTrack={syncSession.sharedTrack}
+        trackBlobUrl={syncSession.trackBlobUrl}
       />
     </div>
   );

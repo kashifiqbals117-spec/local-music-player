@@ -5,6 +5,7 @@ export function Sidebar({ activeTab, onSelectTab }) {
     { id: "albums", label: "Albums", icon: "💿" },
     { id: "artists", label: "Artists", icon: "🎤" },
     { id: "playlists", label: "Playlists", icon: "📂" },
+    { id: "sync", label: "Sync Sessions", icon: "⚡" },
   ];
 
   return (

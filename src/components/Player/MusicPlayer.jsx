@@ -18,13 +18,27 @@ export function MusicPlayer({
   onTimeUpdate,
   onLoadedMetadata,
   onEnded,
+  isSessionActive = false,
+  onSyncPlayback,
+  isResyncing = false,
+  onShareCurrentSong,
+  isSharingTrack = false,
+  shareSuccess = null,
+  isHost = true,
+  sharedTrack = null,
+  trackBlobUrl = null,
 }) {
+  const displayTitle = currentSong?.name || sharedTrack?.title || "Nothing playing";
+  const displayArtist = currentSong ? (currentSong.artist || "Unknown Artist") : (sharedTrack ? (sharedTrack.artist || "Unknown Artist") : "Select a song");
+  const audioSrc = currentSong?.url || trackBlobUrl || undefined;
+  const effectiveDuration = duration || sharedTrack?.duration || 0;
+
   return (
     <section className="player" aria-label="Audio Player">
-      {/* Audio element managed by useAudioPlayer */}
+      {/* Audio element managed by useAudioPlayer and useSyncSession */}
       <audio
         ref={audioRef}
-        src={currentSong?.url}
+        src={audioSrc}
         onTimeUpdate={onTimeUpdate}
         onLoadedMetadata={onLoadedMetadata}
         onEnded={onEnded}
@@ -37,11 +51,11 @@ export function MusicPlayer({
       <div className="now-playing">
         <div className="mini-art">🎵</div>
         <div className="now-playing-meta">
-          <strong title={currentSong?.name || "Nothing playing"}>
-            {currentSong?.name || "Nothing playing"}
+          <strong title={displayTitle}>
+            {displayTitle}
           </strong>
-          <span title={currentSong ? currentSong.artist : "Select a song"}>
-            {currentSong ? currentSong.artist || "Unknown Artist" : "Select a song"}
+          <span title={displayArtist}>
+            {displayArtist}
           </span>
         </div>
       </div>
@@ -50,7 +64,7 @@ export function MusicPlayer({
       <div className="player-center">
         <ProgressBar
           currentTime={currentTime}
-          duration={duration}
+          duration={effectiveDuration}
           onSeek={onSeek}
         />
 
@@ -59,12 +73,37 @@ export function MusicPlayer({
           onPlayPause={onPlayPause}
           onPrevious={onPrevious}
           onNext={onNext}
-          disabled={!currentSong}
+          disabled={!currentSong && !sharedTrack}
         />
       </div>
 
       {/* Right Side: Volume & Extra Controls */}
       <div className="player-right">
+        {/* Share with Session Button (Visible when session is active) */}
+        {isSessionActive && onShareCurrentSong && isHost && (
+          <button
+            type="button"
+            className={`share-mini-button ${isSharingTrack ? "loading" : ""} ${shareSuccess ? "success" : ""}`}
+            onClick={() => onShareCurrentSong(currentSong)}
+            disabled={!currentSong || isSharingTrack}
+            title={!currentSong ? "Select or play a song to share with session" : `Share "${currentSong.name}" with session`}
+          >
+            {isSharingTrack ? "⏳ SHARING..." : shareSuccess ? "✔ SHARED!" : "🚀 SHARE WITH SESSION"}
+          </button>
+        )}
+
+        {isSessionActive && onSyncPlayback && (
+          <button
+            type="button"
+            className={`resync-mini-button ${isResyncing ? "loading" : ""}`}
+            onClick={onSyncPlayback}
+            disabled={isResyncing}
+            title="Designate this device as reference and align all devices (SYNC PLAYBACK)"
+          >
+            {isResyncing ? "🔄 SYNCING..." : "⚡ SYNC PLAYBACK"}
+          </button>
+        )}
+
         {onToggleMute && (
           <button
             type="button"

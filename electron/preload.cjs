@@ -12,4 +12,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   getSongs: () =>
     ipcRenderer.invoke("get-songs"),
+
+  startLocalServer: (port) =>
+    ipcRenderer.invoke("start-local-server", port),
+
+  stopLocalServer: () =>
+    ipcRenderer.invoke("stop-local-server"),
+
+  getLocalServerStatus: () =>
+    ipcRenderer.invoke("get-local-server-status"),
+
+  shareSongToSession: (params) =>
+    ipcRenderer.invoke("share-song-to-session", params),
 });
