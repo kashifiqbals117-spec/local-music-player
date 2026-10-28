@@ -39,6 +39,7 @@ export function MusicPlayer({
       <audio
         ref={audioRef}
         src={audioSrc}
+        muted={isMuted}
         onTimeUpdate={onTimeUpdate}
         onLoadedMetadata={onLoadedMetadata}
         onEnded={onEnded}

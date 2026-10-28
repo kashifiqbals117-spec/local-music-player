@@ -293,8 +293,15 @@ ipcMain.handle("share-song-to-session", async (_, params) => {
   }
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   initializeDatabase();
+
+  // Auto-start local sync server on port 3001 so LAN devices can connect immediately
+  try {
+    await startServer(3001);
+  } catch (err) {
+    console.warn("Could not auto-start local server on port 3001:", err.message);
+  }
 
   createWindow();
 

@@ -72,9 +72,10 @@ function createSyncServer(options = {}) {
 
   // CORS headers
   app.use((req, res, next) => {
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Origin", options.corsOrigin || "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-host-token, x-participant-id");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-host-token, x-participant-id, Range");
+    res.setHeader("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges");
     if (req.method === "OPTIONS") {
       return res.sendStatus(200);
     }
