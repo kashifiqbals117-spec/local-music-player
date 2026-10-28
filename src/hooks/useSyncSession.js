@@ -70,7 +70,6 @@ async function prepareAudioElement(audio, blobUrl) {
     if (audio.src !== blobUrl) {
       audio.src = blobUrl;
     }
-    audio.load();
   });
 }
 
@@ -172,6 +171,14 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
   const rttRef = useRef(0);
   rttRef.current = rtt;
 
+  const hostTokenRef = useRef(hostToken);
+  useEffect(() => {
+    hostTokenRef.current = hostToken;
+  }, [hostToken]);
+
+  const loadedTrackRef = useRef({ id: null, version: null });
+  const isDownloadingRef = useRef(false);
+
   // History buffer for minimum-RTT NTP filtering
   const syncHistoryRef = useRef([]);
 
@@ -266,7 +273,18 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
     serverUrlRef.current = serverUrl;
     setConnectionStatus("connecting");
 
-    const sock = io(serverUrl || window.location.origin, {
+    const defaultHost = (() => {
+      if (musicService.isElectron()) {
+        return "http://localhost:3001";
+      }
+      if (typeof window !== "undefined" && window.location.protocol.startsWith("http")) {
+        return window.location.origin;
+      }
+      return "http://localhost:3001";
+    })();
+
+    const targetUrl = serverUrl || defaultHost;
+    const sock = io(targetUrl, {
       transports: ["websocket", "polling"],
       reconnection: true,
       reconnectionAttempts: 5,
@@ -274,57 +292,25 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
     socketRef.current = sock;
     setSocket(sock);
 
-    sock.on("connect", () => {
-      setConnectionStatus("connected");
-      // Initial burst of 4 clock-sync samples for rapid precision convergence
-      performClockSync(sock, 4);
+    // Helper to download, verify SHA-256, and pre-buffer a track
+    const downloadAndVerifyTrack = async ({ track, downloadUrl } = {}) => {
+      if (!track || isDownloadingRef.current) return;
+      if (
+        loadedTrackRef.current &&
+        loadedTrackRef.current.id === track.id &&
+        loadedTrackRef.current.version === track.version
+      ) {
+        return;
+      }
 
-      const savedPartId = localStorage.getItem(`syncbeat_part_${cleanSessionId}`);
-      const savedToken = localStorage.getItem(`syncbeat_tok_${cleanSessionId}`);
-
-      sock.emit("join-session", {
-        sessionId: cleanSessionId,
-        name,
-        participantId: savedPartId,
-        clientToken: savedToken,
-      }, (res) => {
-        if (res?.success) {
-          setSession(res.session);
-          setMyParticipant(res.participant);
-          if (res.clientToken) {
-            setClientToken(res.clientToken);
-            localStorage.setItem(`syncbeat_part_${cleanSessionId}`, res.participant.id);
-            localStorage.setItem(`syncbeat_tok_${cleanSessionId}`, res.clientToken);
-          }
-        } else {
-          setConnectionStatus("error");
-          setTransferError(res?.error || "Failed to join session.");
-        }
-      });
-    });
-
-    sock.on("disconnect", () => {
-      setConnectionStatus("disconnected");
-    });
-
-    sock.on("session-updated", (updatedState) => {
-      setSession(updatedState);
-    });
-
-    // Handle track published by host
-    sock.on("track-published", async ({ track, downloadUrl }) => {
       setSharedTrack(track);
-      setIsTrackVerified(false);
-      setTransferProgress(0);
-      setIsTransferring(true);
-      setTransferError(null);
 
-      // If this device is the session host and already has audio loaded in the player,
-      // avoid re-fetching over HTTP to maintain uninterrupted local playback.
-      if (hostToken && audioRef?.current?.src) {
+      // If this device is the session host, avoid re-fetching over HTTP to maintain uninterrupted local playback.
+      if (hostTokenRef.current) {
         setIsTrackVerified(true);
         setIsTransferring(false);
         setTransferProgress(100);
+        loadedTrackRef.current = { id: track.id, version: track.version };
         sock.emit("track-ready-ack", {
           sessionId: cleanSessionId,
           isReady: true,
@@ -332,10 +318,16 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
         return;
       }
 
+      isDownloadingRef.current = true;
+      setIsTrackVerified(false);
+      setTransferProgress(0);
+      setIsTransferring(true);
+      setTransferError(null);
+
       try {
-        const fullDownloadUrl = serverUrl
-          ? `${serverUrl.replace(/\/$/, "")}${downloadUrl}`
-          : downloadUrl;
+        const pathUrl = downloadUrl || `/api/sessions/${cleanSessionId}/track?v=${track.version || 0}`;
+        const base = targetUrl || defaultHost;
+        const fullDownloadUrl = base ? `${base.replace(/\/$/, "")}${pathUrl}` : pathUrl;
 
         // Fetch track with download progress
         const response = await fetch(fullDownloadUrl, { cache: "no-store" });
@@ -374,6 +366,7 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
           throw new Error("SHA-256 checksum mismatch! The file may be corrupt.");
         }
 
+        loadedTrackRef.current = { id: track.id, version: track.version };
         setIsTrackVerified(true);
         setIsTransferring(false);
         setTransferProgress(100);
@@ -401,7 +394,71 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
         console.error("Track download error:", err);
         setIsTransferring(false);
         setTransferError(err.message);
+      } finally {
+        isDownloadingRef.current = false;
       }
+    };
+
+    sock.on("connect", () => {
+      setConnectionStatus("connected");
+      // Initial burst of 4 clock-sync samples for rapid precision convergence
+      performClockSync(sock, 4);
+
+      const savedPartId = localStorage.getItem(`syncbeat_part_${cleanSessionId}`);
+      const savedToken = localStorage.getItem(`syncbeat_tok_${cleanSessionId}`);
+
+      sock.emit("join-session", {
+        sessionId: cleanSessionId,
+        name,
+        participantId: savedPartId,
+        clientToken: savedToken,
+      }, async (res) => {
+        if (res?.success) {
+          setSession(res.session);
+          setMyParticipant(res.participant);
+          if (res.clientToken) {
+            setClientToken(res.clientToken);
+            localStorage.setItem(`syncbeat_part_${cleanSessionId}`, res.participant.id);
+            localStorage.setItem(`syncbeat_tok_${cleanSessionId}`, res.clientToken);
+          }
+          // Late joiner support: immediately download and prepare track if session already has a track
+          if (res.session?.currentTrack && !hostTokenRef.current) {
+            await downloadAndVerifyTrack({
+              track: res.session.currentTrack,
+              downloadUrl: `/api/sessions/${cleanSessionId}/track?v=${res.session.currentTrack.version || 0}`,
+            });
+          }
+        } else {
+          setConnectionStatus("error");
+          setTransferError(res?.error || "Failed to join session.");
+        }
+      });
+    });
+
+    sock.on("disconnect", () => {
+      setConnectionStatus("disconnected");
+    });
+
+    sock.on("session-updated", async (updatedState) => {
+      setSession(updatedState);
+      // If a track is present on the session and we haven't loaded this track version yet, download it
+      if (
+        updatedState?.currentTrack &&
+        !hostTokenRef.current &&
+        (!loadedTrackRef.current ||
+          loadedTrackRef.current.id !== updatedState.currentTrack.id ||
+          loadedTrackRef.current.version !== updatedState.currentTrack.version)
+      ) {
+        await downloadAndVerifyTrack({
+          track: updatedState.currentTrack,
+          downloadUrl: `/api/sessions/${cleanSessionId}/track?v=${updatedState.currentTrack.version || 0}`,
+        });
+      }
+    });
+
+    // Handle track published by host
+    sock.on("track-published", async ({ track, downloadUrl }) => {
+      await downloadAndVerifyTrack({ track, downloadUrl });
     });
 
     // Playback commands from server
@@ -777,27 +834,57 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
 
   // Unlock audio context for mobile browsers that block programmatic playback
   const unlockAudio = useCallback(async () => {
+    // In Electron desktop environment, autoplay is unrestricted
+    if (musicService.isElectron()) {
+      setAutoplayBlocked(false);
+      return;
+    }
+
+    // Unlock Web Audio context if available
+    if (typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext)) {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        const ctx = new AudioCtx();
+        await ctx.resume();
+        ctx.close();
+      } catch (_) {}
+    }
+
     if (!audioRef?.current) return;
     const audio = audioRef.current;
-    try {
-      const prevMuted = audio.muted;
-      audio.muted = true;
-      await audio.play();
-      audio.pause();
-      audio.muted = prevMuted;
-      setAutoplayBlocked(false);
 
-      // If session is playing, catch up to current position
-      if (session?.playback?.state === "playing") {
+    // If audio already has an active source and is paused, prime it safely
+    if (audio.src && audio.paused) {
+      const prevMuted = audio.muted;
+      try {
+        audio.muted = true;
+        await audio.play();
+        audio.pause();
+      } catch (err) {
+        if (err.name !== "AbortError") {
+          console.warn("[SyncBeat] Audio unlock prime skipped:", err.message);
+        }
+      } finally {
+        audio.muted = prevMuted;
+      }
+    }
+
+    setAutoplayBlocked(false);
+
+    // If session is playing and has track, catch up to current position
+    if (session?.playback?.state === "playing" && (audio.src || trackBlobUrl)) {
+      try {
         const elapsed = (Date.now() - (session.playback.updatedAt - clockOffsetRef.current)) / 1000;
-        const currentPos = session.playback.position + Math.max(0, elapsed);
+        const currentPos = (session.playback.position || 0) + Math.max(0, elapsed);
         audio.currentTime = currentPos;
         await audio.play();
+      } catch (err) {
+        if (err.name !== "AbortError") {
+          console.warn("[SyncBeat] Catch-up play failed:", err.message);
+        }
       }
-    } catch (err) {
-      console.warn("[SyncBeat] Manual audio unlock failed:", err);
     }
-  }, [audioRef, session]);
+  }, [audioRef, session, trackBlobUrl]);
 
   return {
     session,

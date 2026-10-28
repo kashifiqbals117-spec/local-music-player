@@ -72,7 +72,9 @@ export function SyncSession({
     const host = localServerStatus.addresses[0]
       ? `${localServerStatus.addresses[0]}:${localServerStatus.port || 3001}`
       : window.location.host;
-    const protocol = window.location.protocol;
+    const protocol = (typeof window !== "undefined" && window.location.protocol.startsWith("http"))
+      ? window.location.protocol
+      : "http:";
     const joinUrl = `${protocol}//${host}/?session=${session.id}`;
 
     QRCode.toDataURL(joinUrl, {
@@ -105,15 +107,26 @@ export function SyncSession({
     }
   };
 
+  // Determine server host for this client. Electron and localhost always connect via localhost loopback.
+  const getClientServerHost = (status, mode = "offline") => {
+    const port = status?.port || 3001;
+    if (isElectron || (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"))) {
+      return `http://localhost:${port}`;
+    }
+    if (mode === "online") {
+      return window.location.origin;
+    }
+    return window.location.origin;
+  };
+
   // Create new session as Host
   const handleCreateSession = async (mode = "offline") => {
     if (unlockAudio) unlockAudio();
     try {
       setServerError(null);
-      let serverHost;
+      let currentStatus = localServerStatus;
 
       if (isElectron && mode === "offline") {
-        let currentStatus = localServerStatus;
         if (!currentStatus.running) {
           setIsStartingServer(true);
           const startRes = await musicService.startLocalServer(3001);
@@ -125,14 +138,9 @@ export function SyncSession({
           currentStatus = startRes;
           setLocalServerStatus(startRes);
         }
-        serverHost = currentStatus.addresses && currentStatus.addresses[0]
-          ? `http://${currentStatus.addresses[0]}:${currentStatus.port || 3001}`
-          : `http://localhost:${currentStatus.port || 3001}`;
-      } else {
-        serverHost = localServerStatus.running && localServerStatus.addresses[0]
-          ? `http://${localServerStatus.addresses[0]}:${localServerStatus.port}`
-          : window.location.origin;
       }
+
+      const serverHost = getClientServerHost(currentStatus, mode);
 
       const res = await fetch(`${serverHost}/api/sessions`, {
         method: "POST",
@@ -168,9 +176,7 @@ export function SyncSession({
 
     localStorage.setItem("syncbeat_display_name", inputName);
 
-    const serverHost = localServerStatus.running && localServerStatus.addresses[0]
-      ? `http://${localServerStatus.addresses[0]}:${localServerStatus.port}`
-      : window.location.origin;
+    const serverHost = getClientServerHost(localServerStatus);
 
     joinSession({
       serverUrl: serverHost,
