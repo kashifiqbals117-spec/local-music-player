@@ -3,7 +3,15 @@
  * Validates configuration at startup without printing sensitive secret values.
  */
 
-require("dotenv").config();
+const fs = require("fs");
+const path = require("path");
+const dotenv = require("dotenv");
+
+dotenv.config();
+const rootEnvPath = path.resolve(__dirname, "..", "..", "..", ".env");
+if (fs.existsSync(rootEnvPath)) {
+  dotenv.config({ path: rootEnvPath });
+}
 
 function validateEnv() {
   const warnings = [];

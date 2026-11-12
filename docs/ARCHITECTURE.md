@@ -41,14 +41,14 @@ flowchart TD
 
 ## 2. Process & Responsibility Separation
 
-### A. Electron Main Process (`electron/`)
+### A. Electron Main Process (`backend/electron/`)
 * **Window Lifecycle**: Controls BrowserWindow creation and native application menu.
 * **Local Storage & Database**: Interacts directly with `better-sqlite3` to store songs, metadata, and tracks.
 * **Native File Dialogs**: Opens OS-native file and folder selection dialogs for audio import (`music-metadata`).
 * **Binary File I/O**: Reads audio files safely into Node.js buffers for streaming and hash computation.
 * **Server Lifecycle**: Spawns and manages the local synchronization server on port 3001.
 
-### B. Preload Bridge (`electron/preload.cjs`)
+### B. Preload Bridge (`backend/electron/preload.cjs`)
 * Enforces strict `contextIsolation: true` and `nodeIntegration: false`.
 * Exposes a safe, typed subset of IPC calls to the renderer via `window.electronAPI`:
   - `selectMusicFiles()`, `selectMusicFolder()`
@@ -65,7 +65,7 @@ flowchart TD
 * **`services/cloudinaryService.cjs`**: Validation, secure upload, and deletion of playlist covers and artwork.
 * **`sockets/syncSocket.cjs`**: Socket.IO event handlers for room management, NTP clock synchronization, playback scheduling, and telemetry.
 
-### D. Frontend React Application (`src/`)
+### D. Frontend React Application (`frontend/src/`)
 * Single-Page Application built with React 19 and Vite 8.
 * Reusable service layer:
   - `services/api.js`: Centralized REST API client.

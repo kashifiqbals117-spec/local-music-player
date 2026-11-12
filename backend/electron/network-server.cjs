@@ -1,6 +1,6 @@
 const os = require("os");
 const path = require("path");
-const { createSyncServer } = require("../server/syncServer.cjs");
+const { createSyncServer } = require("../src/server.cjs");
 
 let runningServer = null;
 

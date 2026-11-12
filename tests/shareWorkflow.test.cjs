@@ -4,7 +4,7 @@ const path = require("path");
 const os = require("os");
 const crypto = require("crypto");
 const ioClient = require("socket.io-client");
-const { createSyncServer, computeFileSha256 } = require("../server/syncServer.cjs");
+const { createSyncServer, computeFileSha256 } = require("../backend/src/server.cjs");
 
 const TEST_PORT = 3197;
 

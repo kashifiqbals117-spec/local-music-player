@@ -3,10 +3,12 @@
  * Initializes Express, Socket.IO, SessionManager, and HTTP server.
  */
 
-require("dotenv").config();
+const path = require("path");
+const dotenv = require("dotenv");
+dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, "..", "..", ".env") });
 const http = require("http");
 const os = require("os");
-const path = require("path");
 const fs = require("fs");
 const { Server } = require("socket.io");
 const { SessionManager } = require("./services/sessionManager.cjs");

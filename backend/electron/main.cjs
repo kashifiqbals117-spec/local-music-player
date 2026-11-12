@@ -17,7 +17,7 @@ const {
   getServerInstance,
   getLocalIpAddresses,
 } = require("./network-server.cjs");
-const { computeFileSha256 } = require("../server/syncServer.cjs");
+const { computeFileSha256 } = require("../src/server.cjs");
 
 const SUPPORTED_EXTENSIONS = new Set([
   ".mp3",
@@ -65,7 +65,11 @@ const createWindow = () => {
     },
   });
 
-  win.loadURL("http://localhost:5173");
+  if (app.isPackaged) {
+    win.loadFile(path.join(__dirname, "../../frontend/dist/index.html"));
+  } else {
+    win.loadURL("http://localhost:5173");
+  }
 };
 
 ipcMain.handle("get-songs", () => {

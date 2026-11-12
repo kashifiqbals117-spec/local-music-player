@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const ioClient = require("socket.io-client");
-const { createSyncServer, computeFileSha256 } = require("../server/syncServer.cjs");
+const { createSyncServer, computeFileSha256 } = require("../backend/src/server.cjs");
 
 const E2E_PORT = 3198;
 
@@ -71,7 +71,7 @@ async function runEndToEndTest() {
     console.log(`✔ E2E Step 4: Phone synchronized clock with server (Offset: ${clockOffset.toFixed(1)}ms)`);
 
     // 5. Host Shares Local Track -> Phone Receives and Verifies SHA-256
-    const testAudioPath = path.resolve(__dirname, "../public/test.mp3");
+    const testAudioPath = path.resolve(__dirname, "../frontend/public/test.mp3");
     const expectedHash = await computeFileSha256(testAudioPath);
 
     const phoneTrackPromise = new Promise((resolve) => {

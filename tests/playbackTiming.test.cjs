@@ -3,8 +3,8 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const ioClient = require("socket.io-client");
-const { SessionManager } = require("../server/sessionManager.cjs");
-const { createSyncServer } = require("../server/syncServer.cjs");
+const { SessionManager } = require("../backend/src/services/sessionManager.cjs");
+const { createSyncServer } = require("../backend/src/server.cjs");
 
 const TEST_PORT = 3196;
 

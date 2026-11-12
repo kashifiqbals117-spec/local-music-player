@@ -36,9 +36,13 @@ function createApp({ sessionManager, io, uploadDir, corsOptions = {}, getPort })
   // 5. Cloudinary Media Routes
   app.use("/api/media", createMediaRoutes());
 
-  // 6. Serve static files from Vite's dist/ directory if it exists
-  const distPath = path.join(__dirname, "..", "..", "dist");
-  if (fs.existsSync(distPath)) {
+  // 6. Serve static files from Vite's frontend/dist directory if it exists
+  const candidateDistPaths = [
+    path.join(__dirname, "..", "..", "frontend", "dist"),
+    path.join(__dirname, "..", "..", "dist"),
+  ];
+  const distPath = candidateDistPaths.find((p) => fs.existsSync(p));
+  if (distPath) {
     app.use(express.static(distPath));
 
     // Client-side routing fallback for SPA

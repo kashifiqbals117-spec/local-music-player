@@ -1,5 +1,5 @@
 const assert = require("assert");
-const { SessionManager } = require("../server/sessionManager.cjs");
+const { SessionManager } = require("../backend/src/services/sessionManager.cjs");
 
 function runTests() {
   console.log("=== RUNNING PHASE 1: SESSION MANAGEMENT TESTS ===");

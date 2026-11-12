@@ -1,5 +1,5 @@
 const assert = require("assert");
-const { SessionManager } = require("../server/sessionManager.cjs");
+const { SessionManager } = require("../backend/src/services/sessionManager.cjs");
 
 function runResyncEdgeCaseTests() {
   console.log("=== RUNNING RESYNC PROTOCOL EDGE CASE TESTS ===");

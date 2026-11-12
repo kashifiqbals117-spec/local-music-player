@@ -4,7 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const ioClient = require("socket.io-client");
-const { createSyncServer, computeFileSha256 } = require("../server/syncServer.cjs");
+const { createSyncServer, computeFileSha256 } = require("../backend/src/server.cjs");
 
 const TEST_PORT = 3199;
 
@@ -112,8 +112,8 @@ async function runServerTests() {
     // ------------------------------------------------------------------------
     // 6. Track Sharing & SHA-256 Verification
     // ------------------------------------------------------------------------
-    const testAudioPath = path.resolve(__dirname, "../public/test.mp3");
-    assert(fs.existsSync(testAudioPath), "Test audio public/test.mp3 must exist");
+    const testAudioPath = path.resolve(__dirname, "../frontend/public/test.mp3");
+    assert(fs.existsSync(testAudioPath), "Test audio frontend/public/test.mp3 must exist");
 
     const expectedHash = await computeFileSha256(testAudioPath);
     console.log(`  Audio SHA-256 on disk: ${expectedHash}`);

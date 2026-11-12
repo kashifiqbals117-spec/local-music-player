@@ -23,7 +23,25 @@
 
 ```
 SyncBeat/
-├── backend/                  # Restructured Backend Architecture
+├── frontend/                 # Frontend Application (React 19 + Vite 8)
+│   ├── public/               # Static public assets
+│   ├── src/
+│   │   ├── components/       # UI components (Player, Library, Sidebar)
+│   │   ├── hooks/            # Custom React hooks (useSyncSession, useAudioPlayer)
+│   │   ├── pages/            # Home, Songs, Albums, Artists, Playlists, SyncSession
+│   │   ├── services/         # Centralized API, Socket, and Media services
+│   │   └── utils/            # Formatting utilities
+│   ├── eslint.config.js      # ESLint configuration
+│   ├── index.html            # SPA entry HTML
+│   ├── package.json          # Standalone frontend manifest & build scripts
+│   └── vite.config.js        # Vite configuration (outputs to frontend/dist)
+│
+├── backend/                  # Backend & Electron Desktop Runtime
+│   ├── electron/             # Electron Desktop Application
+│   │   ├── main.cjs          # Electron main process & server supervisor
+│   │   ├── preload.cjs       # Context isolation IPC bridge
+│   │   ├── database.cjs      # SQLite local library storage (better-sqlite3)
+│   │   └── network-server.cjs# Local sync server bridge
 │   ├── src/
 │   │   ├── config/           # CORS, Cloudinary, and Env validation
 │   │   ├── controllers/      # Session and Media controllers
@@ -32,30 +50,18 @@ SyncBeat/
 │   │   ├── services/         # SessionManager and CloudinaryService
 │   │   ├── sockets/          # Socket.IO synchronization engine
 │   │   ├── utils/            # SHA-256 hashing and utilities
-│   │   ├── app.cjs           # Express 5 application setup
+│   │   ├── app.cjs           # Express 5 application setup (serves frontend/dist)
 │   │   └── server.cjs        # HTTP + Socket.IO server entry point
 │   ├── .env.example
-│   └── package.json
-│
-├── electron/                 # Electron Desktop Application
-│   ├── main.cjs              # Electron main process & server supervisor
-│   ├── preload.cjs           # Context isolation IPC bridge
-│   ├── database.cjs          # SQLite local library storage (better-sqlite3)
-│   └── network-server.cjs    # Local sync server bridge
-│
-├── src/                      # Frontend Application (React 19 + Vite 8)
-│   ├── components/           # UI components (Player, Library, Sidebar)
-│   ├── hooks/                # Custom React hooks (useSyncSession, useAudioPlayer)
-│   ├── pages/                # Home, Songs, Albums, Artists, Playlists, SyncSession
-│   ├── services/             # Centralized API, Socket, and Media services
-│   └── utils/                # Formatting utilities
+│   └── package.json          # Standalone backend manifest & start scripts
 │
 ├── docs/                     # Architecture, API & Deployment Documentation
 │   ├── ARCHITECTURE.md
 │   ├── API.md
 │   └── DEPLOYMENT.md
 │
-├── tests/                    # 8 Automated Test Suites
+├── tests/                    # Automated Test Suites
+├── render.yaml               # Render Blueprint deployment configuration
 ├── .env.example              # Environment configuration template
 ├── package.json
 └── README.md

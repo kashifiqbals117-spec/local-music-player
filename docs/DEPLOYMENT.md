@@ -38,16 +38,32 @@ Runs all 8 test suites (Session Manager, Resync Protocol, Integration, E2E, Song
 ### Build Production Web Client
 ```bash
 npm run build
+# or standalone inside frontend/:
+npm --prefix frontend run build
 ```
-Generates production static SPA assets in `dist/`.
+Generates production static SPA assets in `frontend/dist/`.
 
 ---
 
 ## 2. Cloud Deployment (Mode A: Online Sessions)
 
-When deploying SyncBeat to cloud platforms (Render, Railway, Fly.io, AWS, DigitalOcean):
+When deploying SyncBeat to cloud platforms such as **Render**:
 
-### A. Environment Variables
+### A. Render Blueprint Deployment (`render.yaml`)
+SyncBeat includes a root `render.yaml` Blueprint configured to build the React SPA under `frontend/` and run the lightweight Node + Socket.IO server under `backend/` (skipping desktop Electron and native SQLite dependencies).
+
+1. Push the repository to GitHub and in the Render Dashboard choose **New + -> Blueprint** (or connect the repo manually as a **Web Service**).
+2. Render applies `render.yaml`:
+   * **Build Command**: `npm --prefix frontend install --include=dev && npm --prefix frontend run build && npm --prefix backend install --omit=dev`
+   * **Start Command**: `npm --prefix backend start`
+   * **Health Check Path**: `/health`
+   * Note: `--include=dev` on `frontend` ensures Vite devDependencies install even when `NODE_ENV=production`.
+3. Set these environment variables in the Render Dashboard:
+   * `FRONTEND_URL=https://<your-app>.onrender.com`
+   * `CORS_ORIGINS=https://<your-app>.onrender.com`
+   * Optional Cloudinary variables (`CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`) for cover artwork uploads.
+
+### B. Environment Variables
 Set the following environment variables in your cloud provider's dashboard:
 
 ```env
@@ -60,7 +76,7 @@ CLOUDINARY_API_KEY=your_api_key
 CLOUDINARY_API_SECRET=your_api_secret
 ```
 
-### B. Persistent WebSocket Support
+### C. Persistent WebSocket Support
 SyncBeat relies on Socket.IO for NTP clock synchronization and low-latency commands. The hosting environment **must support persistent WebSocket connections**:
 
 * **Reverse Proxy (Nginx)**: Ensure WebSocket upgrade headers are passed:
@@ -79,11 +95,11 @@ SyncBeat relies on Socket.IO for NTP clock synchronization and low-latency comma
 * **Cloudflare**: Ensure WebSockets are enabled in the Cloudflare Network settings.
 * **Sticky Sessions**: If running multiple server instances behind a load balancer, sticky sessions (session affinity) must be enabled so WebSocket polling and upgrades route to the same instance.
 
-### C. Containerized / Node.js Deployment
-* **Build Command**: `npm install && npm run build`
-* **Start Command**: `node backend/src/server.cjs`
+### D. Containerized / Custom Node.js Deployment
+* **Build Command**: `npm --prefix frontend install --include=dev && npm --prefix frontend run build && npm --prefix backend install --omit=dev`
+* **Start Command**: `npm --prefix backend start` (or `node backend/src/server.cjs` from repo root)
 
-When `dist/` is present, `server.cjs` automatically serves the built frontend SPA on the root route while providing all `/api` and Socket.IO endpoints on the same port.
+When `frontend/dist/` is present, `backend/src/app.cjs` automatically serves the built frontend SPA on the root route while providing all `/api` and Socket.IO endpoints on the same port.
 
 ---
 

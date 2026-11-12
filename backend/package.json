@@ -3,5 +3,22 @@
   "version": "1.0.0",
   "private": true,
   "type": "commonjs",
-  "main": "src/server.cjs"
+  "main": "src/server.cjs",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.cjs",
+    "dev": "node src/server.cjs",
+    "local-server": "node electron/network-server.cjs"
+  },
+  "dependencies": {
+    "cloudinary": "^2.11.0",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "multer": "^2.4.0",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.4"
+  }
 }

@@ -4,7 +4,10 @@
  * Never exposes the API Secret to client code.
  */
 
-require("dotenv").config();
+const path = require("path");
+const dotenv = require("dotenv");
+dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, "..", "..", "..", ".env") });
 const cloudinary = require("cloudinary").v2;
 
 const cloudName = process.env.CLOUDINARY_CLOUD_NAME || "";
