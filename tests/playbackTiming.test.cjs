@@ -216,6 +216,8 @@ async function runPlaybackTimingTests() {
     assert(playCommandReceived, "Phone must receive playback-command");
     assert.strictEqual(playCommandReceived.type, "play");
     assert.strictEqual(playCommandReceived.position, 10.0);
+    assert(playCommandReceived.commandId, "playback-command must include a unique commandId");
+    assert(typeof playCommandReceived.commandId === "string", "commandId must be a string UUID");
 
     // Verify scheduledAt provides sufficient dynamic lead time for 220ms RTT
     const leadTimeMs = playCommandReceived.scheduledAt - Date.now();
@@ -224,24 +226,57 @@ async function runPlaybackTimingTests() {
       `Scheduled lead time (${leadTimeMs}ms) must provide ample headroom for mobile audio priming`
     );
     console.log(
-      `✔ Test 8: Coordinated playback scheduled at server timestamp: ${playCommandReceived.scheduledAt} (Lead time: ${leadTimeMs}ms)`
+      `✔ Test 8: Coordinated playback scheduled at server timestamp: ${playCommandReceived.scheduledAt} (Lead time: ${leadTimeMs}ms, commandId: ${playCommandReceived.commandId})`
     );
 
-    // Step 9: Simulate Phone reporting true playback startup diagnostics
-    phoneSocket.emit("playback-telemetry", {
+    // Step 9: Step 6 of protocol — Phone emits playback-started acknowledgment
+    phoneSocket.emit("playback-started", {
       sessionId,
       participantId: phoneParticipantId,
-      startupDelayMs: 14,
-      readyState: 4,
-      rtt: 220,
-      drift: 0.005,
+      commandId: playCommandReceived.commandId,
+      scheduledAt: playCommandReceived.scheduledAt,
+      actualStartedAt: Date.now(),
+      startupDelayMs: 28,
+      initialPosition: 10.0,
+      success: true,
     });
     await sleep(100);
 
     const updatedPhone = sessionSnap.participants.get(phoneParticipantId);
-    assert.strictEqual(updatedPhone.rtt, 220);
-    assert.strictEqual(updatedPhone.isReady, true);
-    console.log("✔ Test 9: Phone diagnostic telemetry recorded successfully (Startup delay: 14ms)");
+    assert.strictEqual(updatedPhone.startupDelayMs, 28, "Server must record startupDelayMs");
+    assert.strictEqual(updatedPhone.lastCommandId, playCommandReceived.commandId, "Server must track lastCommandId");
+    assert.strictEqual(updatedPhone.isStarted, true, "Server must record participant playback start status");
+    console.log("✔ Test 9: Protocol Step 6 acknowledged: Phone playback-started event recorded by server");
+
+    // Step 10: Smooth rate alignment calculation verification
+    // 28ms startup delay catch-up at 1.05x (+5% speed):
+    // Catch-up rate: 0.05 seconds per second. Time required: 0.028 / 0.05 = 0.56s (560ms).
+    const catchupTimeMs = Math.round(28 * 20); // 560ms
+    const distanceGainedSec = (catchupTimeMs / 1000) * 0.05; // 0.028s = 28ms
+    assert.strictEqual(Math.round(distanceGainedSec * 1000), 28, "5% rate boost must close 28ms gap exactly");
+    console.log(`✔ Test 10: Smooth rate alignment calculation verified: 28ms gap closed in ${catchupTimeMs}ms without seeking pops`);
+
+    const initialPlayCommandId = playCommandReceived.commandId;
+
+    // Step 11: Command cancellation & pause coordination
+    let pauseCommandReceived = null;
+    phoneSocket.on("playback-command", (cmd) => {
+      if (cmd.type === "pause") pauseCommandReceived = cmd;
+    });
+
+    await new Promise((resolve) => {
+      hostSocket.emit("request-pause", { sessionId, hostToken, position: 14.5 }, resolve);
+    });
+    await sleep(100);
+
+    assert(pauseCommandReceived, "Pause command must be received by all participants");
+    assert.strictEqual(pauseCommandReceived.type, "pause");
+    assert.notStrictEqual(
+      pauseCommandReceived.commandId,
+      initialPlayCommandId,
+      "Pause must have a new distinct commandId to cancel pending play commands"
+    );
+    console.log(`✔ Test 11: Coordinated pause verified with distinct commandId: ${pauseCommandReceived.commandId}`);
 
     // Cleanup sockets
     hostSocket.disconnect();

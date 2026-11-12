@@ -23,8 +23,29 @@ export function useMusicLibrary() {
 
   // Initial load when app mounts
   useEffect(() => {
-    loadSongs();
-  }, [loadSongs]);
+    let active = true;
+    (async () => {
+      try {
+        const savedSongs = await musicService.getSongs();
+        if (active) {
+          setSongs(savedSongs || []);
+          setError(null);
+        }
+      } catch (err) {
+        console.error("Failed to load music library:", err);
+        if (active) {
+          setError("Failed to load music library.");
+        }
+      } finally {
+        if (active) {
+          setIsLoading(false);
+        }
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Import individual music files
   const addSongs = useCallback(async () => {

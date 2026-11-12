@@ -1,0 +1,73 @@
+/**
+ * Express Application Factory for SyncBeat.
+ * Configures centralized CORS, JSON parsing, API routes, media routes, and static assets.
+ */
+
+const express = require("express");
+const cors = require("cors");
+const path = require("path");
+const fs = require("fs");
+const { createExpressCorsOptions } = require("./config/cors.cjs");
+const { createAudioUploadMiddleware } = require("./middleware/uploadMiddleware.cjs");
+const { createSessionController } = require("./controllers/sessionController.cjs");
+const { createSessionRoutes } = require("./routes/sessionRoutes.cjs");
+const { createMediaRoutes } = require("./routes/mediaRoutes.cjs");
+
+function createApp({ sessionManager, io, uploadDir, corsOptions = {}, getPort }) {
+  const app = express();
+  app.set("trust proxy", 1);
+
+  // 1. Centralized CORS middleware
+  const expressCors = cors(createExpressCorsOptions(corsOptions));
+  app.use(expressCors);
+
+  // 2. Standard Body Parsers
+  app.use(express.json({ limit: "10mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+  // 3. Audio upload middleware
+  const audioUpload = createAudioUploadMiddleware(uploadDir);
+
+  // 4. Session Controller & Routes
+  const sessionController = createSessionController({ sessionManager, io, getPort });
+  app.get("/health", sessionController.healthCheck);
+  app.use("/api/sessions", createSessionRoutes({ sessionController, audioUpload }));
+
+  // 5. Cloudinary Media Routes
+  app.use("/api/media", createMediaRoutes());
+
+  // 6. Serve static files from Vite's dist/ directory if it exists
+  const distPath = path.join(__dirname, "..", "..", "dist");
+  if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+
+    // Client-side routing fallback for SPA
+    app.use((req, res, next) => {
+      if (req.method !== "GET") return next();
+      if (req.path.startsWith("/api") || req.path.startsWith("/socket.io") || req.path === "/health") {
+        return next();
+      }
+      const indexPath = path.join(distPath, "index.html");
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        next();
+      }
+    });
+  }
+
+  // 7. Centralized Error Handler
+  app.use((err, _req, res, _next) => {
+    if (err.message && err.message.startsWith("CORS Error")) {
+      return res.status(403).json({ error: err.message });
+    }
+    console.error("[SyncBeat Server Error]:", err);
+    res.status(err.status || 500).json({
+      error: err.message || "Internal server error.",
+    });
+  });
+
+  return app;
+}
+
+module.exports = { createApp };

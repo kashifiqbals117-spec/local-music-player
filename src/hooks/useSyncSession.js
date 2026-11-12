@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { io } from "socket.io-client";
+import { createSocketConnection, getDefaultSocketUrl } from "../services/socket";
 import musicService from "../services/musicService";
 
 /**
@@ -134,7 +134,6 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
   const [socket, setSocket] = useState(null);
   const [session, setSession] = useState(null);
   const [myParticipant, setMyParticipant] = useState(null);
-  const [clientToken, setClientToken] = useState(() => localStorage.getItem("syncbeat_client_token") || null);
   const [hostToken, setHostToken] = useState(() => sessionStorage.getItem("syncbeat_host_token") || null);
 
   const [connectionStatus, setConnectionStatus] = useState("disconnected"); // 'disconnected'|'connecting'|'connected'
@@ -159,17 +158,24 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
   const serverUrlRef = useRef("");
 
   // Manual Resync & Drift states
-  const [resyncState, setResyncState] = useState(null); // active resync info
   const [resyncNotice, setResyncNotice] = useState(null); // feedback banner
   const [isResyncing, setIsResyncing] = useState(false);
   const [driftSeconds, setDriftSeconds] = useState(0);
 
   const socketRef = useRef(null);
   const preciseActionRef = useRef(null);
+  const activeCommandIdRef = useRef(null);
+  const audioCtxRef = useRef(null);
   const clockOffsetRef = useRef(0);
-  clockOffsetRef.current = clockOffset;
   const rttRef = useRef(0);
-  rttRef.current = rtt;
+
+  useEffect(() => {
+    clockOffsetRef.current = clockOffset;
+  }, [clockOffset]);
+
+  useEffect(() => {
+    rttRef.current = rtt;
+  }, [rtt]);
 
   const hostTokenRef = useRef(hostToken);
   useEffect(() => {
@@ -199,6 +205,13 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
       }
       if (preciseActionRef.current) {
         preciseActionRef.current.cancel();
+      }
+      if (audioCtxRef.current) {
+        try {
+          audioCtxRef.current.close();
+        } catch {
+          // Ignore already closed AudioContext
+        }
       }
       if (socketRef.current) {
         socketRef.current.disconnect();
@@ -273,22 +286,8 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
     serverUrlRef.current = serverUrl;
     setConnectionStatus("connecting");
 
-    const defaultHost = (() => {
-      if (musicService.isElectron()) {
-        return "http://localhost:3001";
-      }
-      if (typeof window !== "undefined" && window.location.protocol.startsWith("http")) {
-        return window.location.origin;
-      }
-      return "http://localhost:3001";
-    })();
-
-    const targetUrl = serverUrl || defaultHost;
-    const sock = io(targetUrl, {
-      transports: ["websocket", "polling"],
-      reconnection: true,
-      reconnectionAttempts: 5,
-    });
+    const targetUrl = serverUrl || getDefaultSocketUrl();
+    const sock = createSocketConnection(targetUrl);
     socketRef.current = sock;
     setSocket(sock);
 
@@ -326,7 +325,7 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
 
       try {
         const pathUrl = downloadUrl || `/api/sessions/${cleanSessionId}/track?v=${track.version || 0}`;
-        const base = targetUrl || defaultHost;
+        const base = targetUrl || getDefaultSocketUrl();
         const fullDownloadUrl = base ? `${base.replace(/\/$/, "")}${pathUrl}` : pathUrl;
 
         // Fetch track with download progress
@@ -417,7 +416,6 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
           setSession(res.session);
           setMyParticipant(res.participant);
           if (res.clientToken) {
-            setClientToken(res.clientToken);
             localStorage.setItem(`syncbeat_part_${cleanSessionId}`, res.participant.id);
             localStorage.setItem(`syncbeat_tok_${cleanSessionId}`, res.clientToken);
           }
@@ -462,9 +460,16 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
     });
 
     // Playback commands from server
-    sock.on("playback-command", ({ type, position, scheduledAt }) => {
+    sock.on("playback-command", ({ type, position, scheduledAt, commandId }) => {
       const currentOffset = clockOffsetRef.current;
       const localScheduledTime = scheduledAt - currentOffset;
+      const cmdId = commandId || `cmd_${Date.now()}`;
+      activeCommandIdRef.current = cmdId;
+
+      const timeUntilStart = localScheduledTime - Date.now();
+      console.log(
+        `[SyncBeat Timing] Command Received | ID: ${cmdId} | Type: ${type} | ScheduledAt: ${scheduledAt} | LocalScheduledAt: ${localScheduledTime} | Offset: ${Math.round(currentOffset)}ms | Headroom: ${timeUntilStart}ms`
+      );
 
       if (preciseActionRef.current) {
         preciseActionRef.current.cancel();
@@ -480,32 +485,87 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
         if (onLocalPause) onLocalPause(position);
       } else if (type === "play") {
         // Step 1: Pre-seek and pre-buffer immediately upon receiving command
-        // This ensures the browser's audio decoder is already positioned and primed
+        // Prime the audio decoder during the lead time so no decoding delay occurs at target time
         if (audioRef?.current && Number.isFinite(position)) {
           if (Math.abs(audioRef.current.currentTime - position) > 0.05) {
             audioRef.current.currentTime = position;
           }
         }
 
+        // Prime Web Audio hardware output pipeline on mobile devices if available
+        if (typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext)) {
+          try {
+            if (!audioCtxRef.current) {
+              const AudioCtx = window.AudioContext || window.webkitAudioContext;
+              audioCtxRef.current = new AudioCtx();
+            }
+            if (audioCtxRef.current.state === "suspended") {
+              audioCtxRef.current.resume().catch(() => {});
+            }
+          } catch {
+            // AudioContext unavailable or blocked prior to user gesture
+          }
+        }
+
+        console.log(
+          `[SyncBeat Timing] Audio Pipeline Primed | commandId: ${cmdId} | readyState: ${audioRef?.current?.readyState || 0} | targetPos: ${position}s`
+        );
+
         // Step 2: High-precision schedule to target time
         preciseActionRef.current = schedulePreciseAction(localScheduledTime, async (lateMs) => {
+          if (activeCommandIdRef.current !== cmdId) {
+            console.log(`[SyncBeat Timing] Scheduled action skipped for obsolete command: ${cmdId}`);
+            return;
+          }
+
           if (audioRef?.current) {
             const audio = audioRef.current;
             const playInvokeTime = Date.now();
 
-            // If timer woke up noticeably late (>25ms), compensate position so we don't start in the past
-            if (lateMs > 25 && Number.isFinite(position)) {
-              audio.currentTime = position + (lateMs / 1000);
-            }
+            console.log(
+              `[SyncBeat Timing] Audio Play Invoked | commandId: ${cmdId} | WallClock: ${playInvokeTime} | TimerOversleep: ${Math.round(lateMs)}ms`
+            );
 
-            // Instrument true playback start time via 'playing' event
+            // Step 6: Instrument true playback start time via 'playing' event
             const onPlaying = () => {
               audio.removeEventListener("playing", onPlaying);
+              if (activeCommandIdRef.current !== cmdId) return;
+
               const actualStartWall = Date.now();
               const startupDelayMs = actualStartWall - localScheduledTime;
               const posAfterStart = audio.currentTime;
 
+              // Step 6: Emit playback-started acknowledgment to server
+              sock.emit("playback-started", {
+                sessionId: cleanSessionId,
+                participantId: myParticipant?.id,
+                commandId: cmdId,
+                scheduledAt,
+                actualStartedAt: actualStartWall,
+                startupDelayMs: Math.round(startupDelayMs),
+                initialPosition: Number(posAfterStart.toFixed(3)),
+                success: true,
+              });
+
+              // Step 7: Smooth output latency compensation (gentle rate adjustment if startup was delayed)
+              // If hardware output buffer fill caused >25ms startup delay, catch up smoothly
+              if (startupDelayMs > 25 && startupDelayMs < 400) {
+                console.log(
+                  `[SyncBeat Timing] Smoothly aligning output delay (+${Math.round(startupDelayMs)}ms) via temporary 1.05x rate boost`
+                );
+                audio.playbackRate = 1.05;
+                setTimeout(() => {
+                  if (audio && !audio.paused) {
+                    audio.playbackRate = 1.0;
+                    console.log(`[SyncBeat Timing] Output aligned! Restored playbackRate to 1.0`);
+                  }
+                }, Math.min(2500, Math.round(startupDelayMs * 20)));
+              } else {
+                audio.playbackRate = 1.0;
+              }
+
               const diag = {
+                commandId: cmdId,
                 commandType: "play",
                 requestedScheduledAt: scheduledAt,
                 localScheduledAt: localScheduledTime,
@@ -521,7 +581,7 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
               };
 
               console.log(
-                `[SyncBeat Audio Timing] Started playback. Target delay: ${diag.startupDelayMs > 0 ? "+" : ""}${diag.startupDelayMs}ms | Audio readyState: ${diag.audioReadyState} | Clock offset: ${Math.round(diag.estimatedClockOffset)}ms | Pos: ${diag.initialPosition}s`
+                `[SyncBeat Timing] Audible Playback Started | commandId: ${cmdId} | Target Delay: ${diag.startupDelayMs > 0 ? "+" : ""}${diag.startupDelayMs}ms | Offset: ${Math.round(diag.estimatedClockOffset)}ms | Pos: ${diag.initialPosition}s`
               );
 
               setPlaybackDiagnostics(diag);
@@ -534,6 +594,14 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
               setAutoplayBlocked(false);
             } catch (err) {
               console.warn("[SyncBeat] Audio play prevented by browser autoplay policy:", err.message);
+              sock.emit("playback-started", {
+                sessionId: cleanSessionId,
+                participantId: myParticipant?.id,
+                commandId: cmdId,
+                scheduledAt,
+                success: false,
+                error: err.name,
+              });
               if (err.name === "NotAllowedError") {
                 setAutoplayBlocked(true);
               }
@@ -554,9 +622,8 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
        ====================================================================== */
 
     // Step 7-8: Server broadcasts RESYNC_BEGIN
-    sock.on("resync-begin", ({ opId, referenceParticipantId, referenceName, position, timeoutMs }) => {
+    sock.on("resync-begin", ({ opId, referenceName, position }) => {
       setIsResyncing(true);
-      setResyncState({ opId, referenceName, position });
       setResyncNotice(`Pausing devices to align with ${referenceName} at ${position.toFixed(1)}s...`);
 
       // All devices pause immediately
@@ -580,6 +647,8 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
     sock.on("resync-commit", ({ opId, position, scheduledResumeAt, state, referenceName, unreadyParticipants }) => {
       const currentOffset = clockOffsetRef.current;
       const localScheduledTime = scheduledResumeAt - currentOffset;
+      const commitCmdId = `resync_${opId}`;
+      activeCommandIdRef.current = commitCmdId;
 
       let noticeText = `Playback synchronized with ${referenceName}!`;
       if (unreadyParticipants && unreadyParticipants.length > 0) {
@@ -600,21 +669,31 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
         }
 
         preciseActionRef.current = schedulePreciseAction(localScheduledTime, async (lateMs) => {
+          if (activeCommandIdRef.current !== commitCmdId) return;
+
           if (audioRef?.current) {
             const audio = audioRef.current;
             const playInvokeTime = Date.now();
 
-            if (lateMs > 25 && Number.isFinite(position)) {
-              audio.currentTime = position + (lateMs / 1000);
-            }
-
             const onPlaying = () => {
               audio.removeEventListener("playing", onPlaying);
+              if (activeCommandIdRef.current !== commitCmdId) return;
+
               const actualStartWall = Date.now();
               const startupDelayMs = actualStartWall - localScheduledTime;
               const posAfterStart = audio.currentTime;
 
+              if (startupDelayMs > 25 && startupDelayMs < 400) {
+                audio.playbackRate = 1.05;
+                setTimeout(() => {
+                  if (audio && !audio.paused) audio.playbackRate = 1.0;
+                }, Math.min(2500, Math.round(startupDelayMs * 20)));
+              } else {
+                audio.playbackRate = 1.0;
+              }
+
               const diag = {
+                commandId: commitCmdId,
                 commandType: "resync-commit",
                 requestedScheduledAt: scheduledResumeAt,
                 localScheduledAt: localScheduledTime,
@@ -724,16 +803,30 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
     });
   }, [socket, session, isResyncing, audioRef, sharedTrack]);
 
-  // Host playback controls
-  const hostPlay = useCallback((position = 0) => {
+  // Host playback controls (Coordinated Start: initiates server request without immediate local playback)
+  const hostPlay = useCallback((position) => {
     if (!socket || !session || !hostToken) return;
+    const pos = Number.isFinite(position)
+      ? position
+      : (audioRef?.current ? audioRef.current.currentTime : 0);
+
+    console.log(
+      `[SyncBeat Timing] Host initiated play at position ${pos.toFixed(2)}s. Emitting request-play to server...`
+    );
+
     socket.emit("request-play", {
       sessionId: session.id,
       hostToken,
-      position,
+      position: pos,
       leadTimeMs: 1200,
+    }, (res) => {
+      if (!res?.success) {
+        console.warn("[SyncBeat Timing] Play request rejected:", res?.error);
+        setResyncNotice(res?.error || "Cannot play: devices buffering.");
+        setTimeout(() => setResyncNotice(null), 4000);
+      }
     });
-  }, [socket, session, hostToken]);
+  }, [socket, session, hostToken, audioRef]);
 
   const hostPause = useCallback(() => {
     if (!socket || !session || !hostToken) return;
@@ -830,7 +923,7 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
     } finally {
       setIsSharingTrack(false);
     }
-  }, [session?.id, hostToken]);
+  }, [session, hostToken]);
 
   // Unlock audio context for mobile browsers that block programmatic playback
   const unlockAudio = useCallback(async () => {
@@ -847,7 +940,9 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
         const ctx = new AudioCtx();
         await ctx.resume();
         ctx.close();
-      } catch (_) {}
+      } catch {
+        // Ignore AudioContext errors before user gesture
+      }
     }
 
     if (!audioRef?.current) return;

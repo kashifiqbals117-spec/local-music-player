@@ -17,6 +17,8 @@ export function MusicPlayer({
   audioRef,
   onTimeUpdate,
   onLoadedMetadata,
+  onPlay,
+  onPause,
   onEnded,
   isSessionActive = false,
   onSyncPlayback,
@@ -42,6 +44,8 @@ export function MusicPlayer({
         muted={isMuted}
         onTimeUpdate={onTimeUpdate}
         onLoadedMetadata={onLoadedMetadata}
+        onPlay={onPlay}
+        onPause={onPause}
         onEnded={onEnded}
         onError={(e) => {
           console.error("Audio error encountered:", e.currentTarget.error);

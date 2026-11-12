@@ -106,21 +106,26 @@ npm run dev
 
 ### Starting Standalone Server (for Headless / Online Hosting)
 ```bash
-npm run server
+npm start
+# or: npm run backend
 ```
 
 ---
 
 ## 5. Cloud Deployment (Mode A)
 
-The server (`server/syncServer.cjs`) is self-contained and ready for deployment to any platform that supports Node.js and persistent WebSockets.
+The backend server (`backend/src/server.cjs`) is self-contained and ready for deployment to any platform that supports Node.js (`>=20`) and persistent WebSockets. See also [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for reverse proxy and Cloudinary instructions.
 
 ### Environment Variables
 | Variable | Description | Default |
 | :--- | :--- | :--- |
 | `PORT` | Listening HTTP & WebSocket port | `3001` (or assigned by cloud host) |
-| `CORS_ORIGIN` | Allowed CORS origins for browser guests | `*` |
-| `PUBLIC_URL` | Public HTTPS URL of the deployed server | `http://localhost:3001` |
+| `NODE_ENV` | Runtime environment (`production` or `development`) | `development` |
+| `FRONTEND_URL` | Primary frontend origin URL | `http://localhost:5173` |
+| `CORS_ORIGINS` | Comma-separated permitted origins for Express & Socket.IO | Dev localhost origins |
+| `CLOUDINARY_CLOUD_NAME` | Optional Cloudinary cloud name for playlist/cover art | — |
+| `CLOUDINARY_API_KEY` | Optional Cloudinary API key | — |
+| `CLOUDINARY_API_SECRET` | Optional Cloudinary API secret | — |
 
 ### Deploying to Render / Railway
 1. **Build Command**:
@@ -129,9 +134,9 @@ The server (`server/syncServer.cjs`) is self-contained and ready for deployment 
    ```
 2. **Start Command**:
    ```bash
-   node server/syncServer.cjs
+   npm start
    ```
-3. Because `syncServer.cjs` automatically serves `dist/` as static files, deploying this single Node service deploys both the backend Socket.IO session server and the mobile-friendly web application!
+3. Because `backend/src/app.cjs` automatically serves `dist/` as static files when present, deploying this single Node service serves both the backend Socket.IO session server and the mobile-friendly web application on one origin!
 
 ---
 

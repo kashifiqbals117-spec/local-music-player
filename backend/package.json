@@ -1,0 +1,7 @@
+{
+  "name": "syncbeat-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "src/server.cjs"
+}

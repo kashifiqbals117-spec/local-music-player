@@ -1,5 +1,6 @@
 import { useState, useEffect, useId } from "react";
 import musicService from "../services/musicService";
+import api from "../services/api";
 import QRCode from "qrcode";
 
 export function SyncSession({
@@ -64,12 +65,11 @@ export function SyncSession({
 
   // Generate QR Code when session is active
   useEffect(() => {
-    if (!session?.id) {
-      setQrCodeUrl(null);
-      return;
-    }
+    if (!session?.id) return;
 
-    const host = localServerStatus.addresses[0]
+    let cancelled = false;
+    const useLanAddress = session.mode !== "online" && localServerStatus.addresses[0];
+    const host = useLanAddress
       ? `${localServerStatus.addresses[0]}:${localServerStatus.port || 3001}`
       : window.location.host;
     const protocol = (typeof window !== "undefined" && window.location.protocol.startsWith("http"))
@@ -81,8 +81,16 @@ export function SyncSession({
       width: 240,
       margin: 2,
       color: { dark: "#000000", light: "#ffffff" },
-    }).then(setQrCodeUrl).catch(console.error);
-  }, [session?.id, localServerStatus]);
+    })
+      .then((url) => {
+        if (!cancelled) setQrCodeUrl(url);
+      })
+      .catch(console.error);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.id, session?.mode, localServerStatus]);
 
   // Toggle local network server
   const handleToggleServer = async () => {
@@ -142,14 +150,10 @@ export function SyncSession({
 
       const serverHost = getClientServerHost(currentStatus, mode);
 
-      const res = await fetch(`${serverHost}/api/sessions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hostName: inputName || "Host", mode }),
-      });
-
-      if (!res.ok) throw new Error("Failed to create session");
-      const data = await res.json();
+      const data = await api.createSession(
+        { hostName: inputName || "Host", mode },
+        serverHost
+      );
 
       setHostToken(data.hostToken);
       sessionStorage.setItem("syncbeat_host_token", data.hostToken);
@@ -190,8 +194,9 @@ export function SyncSession({
   // Share song from desktop library to session
   const handleShareSong = async (songToShare) => {
     if (!songToShare) return;
+    // Prepare track in player without starting premature uncoordinated playback
     if (onPlaySong && (!currentSong || currentSong.path !== songToShare.path)) {
-      onPlaySong(songToShare);
+      onPlaySong(songToShare, { autoPlay: false });
     }
     if (shareSong) {
       await shareSong(songToShare);
@@ -477,7 +482,7 @@ export function SyncSession({
                     <div className="host-session-controls">
                       <h4>Host Controls</h4>
                       <div className="host-buttons">
-                        <button type="button" className="add-button" onClick={() => hostPlay(0)}>
+                        <button type="button" className="add-button" onClick={() => hostPlay()}>
                           ▶ Play Together
                         </button>
                         <button type="button" className="folder-button" onClick={hostPause}>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import "./App.css";
 
 import Sidebar from "./components/Sidebar";
@@ -14,11 +14,18 @@ import Artists from "./pages/Artists";
 import Playlists from "./pages/Playlists";
 import SyncSession from "./pages/SyncSession";
 
+function getInitialSessionIdFromUrl() {
+  if (typeof window === "undefined") return "";
+  const urlSession = new URLSearchParams(window.location.search).get("session");
+  return urlSession ? urlSession.toUpperCase().trim() : "";
+}
+
 function App() {
-  const [activeTab, setActiveTab] = useState("songs");
+  const [initialUrlSessionId] = useState(getInitialSessionIdFromUrl);
+  const [activeTab, setActiveTab] = useState(() => (initialUrlSessionId ? "sync" : "songs"));
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("title");
-  const [activeSessionId, setActiveSessionId] = useState("");
+  const [activeSessionId, setActiveSessionId] = useState(initialUrlSessionId);
 
   const {
     songs,
@@ -32,6 +39,7 @@ function App() {
     audioRef,
     currentSong,
     isPlaying,
+    setIsPlaying,
     currentTime,
     duration,
     volume,
@@ -46,32 +54,52 @@ function App() {
     toggleMute,
     handleTimeUpdate,
     handleLoadedMetadata,
+    handlePlay,
+    handlePause,
     handleEnded,
   } = useAudioPlayer();
 
   const syncSession = useSyncSession({
     audioRef,
-    onLocalPlay: () => {},
-    onLocalPause: () => {},
+    onLocalPlay: () => setIsPlaying(true),
+    onLocalPause: () => setIsPlaying(false),
     onLocalSeek: (pos) => handleSeek(pos),
   });
 
-  // Automatically switch to Sync tab if opened with ?session=XYZ
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const urlSession = params.get("session");
-      if (urlSession) {
-        const cleanId = urlSession.toUpperCase().trim();
-        setActiveTab("sync");
-        setActiveSessionId(cleanId);
-        syncSession.joinSession({
-          sessionId: cleanId,
-          name: localStorage.getItem("syncbeat_display_name") || "Guest",
-        });
+  // Coordinated play/pause handler: prevents host from starting immediately without network coordination
+  const handlePlayerPlayPause = useCallback(() => {
+    if (syncSession.session && syncSession.hostToken) {
+      if (isPlaying) {
+        syncSession.hostPause();
+      } else {
+        const cur = audioRef?.current ? audioRef.current.currentTime : currentTime;
+        syncSession.hostPlay(cur);
       }
+    } else {
+      playPause();
     }
-  }, []);
+  }, [syncSession, isPlaying, audioRef, currentTime, playPause]);
+
+  // Coordinated seek handler
+  const handlePlayerSeek = useCallback((pos) => {
+    if (syncSession.session && syncSession.hostToken) {
+      syncSession.hostSeek(pos);
+    } else {
+      handleSeek(pos);
+    }
+  }, [syncSession, handleSeek]);
+
+  const { joinSession } = syncSession;
+
+  // Automatically join session if opened with ?session=XYZ
+  useEffect(() => {
+    if (initialUrlSessionId) {
+      joinSession({
+        sessionId: initialUrlSessionId,
+        name: localStorage.getItem("syncbeat_display_name") || "Guest",
+      });
+    }
+  }, [initialUrlSessionId, joinSession]);
 
   const renderActivePage = () => {
     const commonProps = {
@@ -154,8 +182,8 @@ function App() {
         isPlaying={isPlaying}
         currentTime={currentTime}
         duration={duration}
-        onPlayPause={playPause}
-        onSeek={handleSeek}
+        onPlayPause={handlePlayerPlayPause}
+        onSeek={handlePlayerSeek}
         onPrevious={() => playPrevious(songs)}
         onNext={() => playNext(songs)}
         volume={volume}
@@ -165,6 +193,8 @@ function App() {
         audioRef={audioRef}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
+        onPlay={handlePlay}
+        onPause={handlePause}
         onEnded={() => handleEnded(songs)}
         isSessionActive={Boolean(syncSession.session)}
         onSyncPlayback={syncSession.requestSyncPlayback}

@@ -13,6 +13,7 @@ export function useAudioPlayer() {
   const audioRef = useRef(null);
   const activeUrlRef = useRef(null);
   const playPromiseRef = useRef(null);
+  const autoPlayRef = useRef(true);
 
   const [currentSong, setCurrentSong] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -21,6 +22,8 @@ export function useAudioPlayer() {
   const [volume, setVolumeState] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [playerError, setPlayerError] = useState(null);
+  const volumeRef = useRef(volume);
+  const isMutedRef = useRef(isMuted);
 
   // Safely cleanup Blob URL on unmount
   useEffect(() => {
@@ -34,24 +37,33 @@ export function useAudioPlayer() {
 
   // Synchronize audio element volume and muted states with React state
   useEffect(() => {
+    volumeRef.current = volume;
+    isMutedRef.current = isMuted;
     if (audioRef.current) {
       audioRef.current.volume = volume;
       audioRef.current.muted = isMuted;
     }
   }, [volume, isMuted]);
 
-  // Play a selected song
-  const playSong = useCallback(async (song) => {
+  // Play a selected song with optional autoPlay control
+  const playSong = useCallback(async (song, { autoPlay = true } = {}) => {
     if (!song || !song.path) return;
 
     try {
       setPlayerError(null);
+      autoPlayRef.current = autoPlay !== false;
 
       // If the song is already loaded, restart or continue without re-reading file from disk
       if (currentSong?.path === song.path && activeUrlRef.current && audioRef.current) {
         audioRef.current.currentTime = 0;
         audioRef.current.volume = volume;
         audioRef.current.muted = isMuted;
+
+        if (!autoPlayRef.current) {
+          setIsPlaying(false);
+          return;
+        }
+
         try {
           const p = audioRef.current.play();
           playPromiseRef.current = p;
@@ -98,13 +110,13 @@ export function useAudioPlayer() {
       });
       setCurrentTime(0);
       setDuration(song.duration || 0);
-      setIsPlaying(true);
+      setIsPlaying(autoPlayRef.current);
     } catch (err) {
       console.error("Error initiating playback:", err);
       setPlayerError("Error initiating playback");
       setIsPlaying(false);
     }
-  }, [currentSong?.path, isMuted, volume]);
+  }, [currentSong, isMuted, volume]);
 
   // Trigger play when new song URL is ready
   useEffect(() => {
@@ -114,8 +126,14 @@ export function useAudioPlayer() {
     let isCurrent = true;
 
     // Apply volume and unmuted status explicitly
-    audio.volume = volume;
-    audio.muted = isMuted;
+    audio.volume = volumeRef.current;
+    audio.muted = isMutedRef.current;
+
+    if (!autoPlayRef.current) {
+      audio.currentTime = 0;
+      setIsPlaying(false);
+      return;
+    }
 
     const playAudio = async () => {
       try {
@@ -158,7 +176,9 @@ export function useAudioPlayer() {
       if (playPromiseRef.current) {
         try {
           await playPromiseRef.current;
-        } catch (_) {}
+        } catch {
+          // Ignore interrupted play promise
+        }
       }
       audio.pause();
       setIsPlaying(false);
@@ -201,6 +221,14 @@ export function useAudioPlayer() {
     if (audioRef.current) {
       setDuration(audioRef.current.duration || 0);
     }
+  }, []);
+
+  const handlePlay = useCallback(() => {
+    setIsPlaying(true);
+  }, []);
+
+  const handlePause = useCallback(() => {
+    setIsPlaying(false);
   }, []);
 
   const handleEnded = useCallback((playlist = []) => {
@@ -263,6 +291,7 @@ export function useAudioPlayer() {
     audioRef,
     currentSong,
     isPlaying,
+    setIsPlaying,
     currentTime,
     duration,
     volume,
@@ -277,6 +306,8 @@ export function useAudioPlayer() {
     toggleMute,
     handleTimeUpdate,
     handleLoadedMetadata,
+    handlePlay,
+    handlePause,
     handleEnded,
   };
 }
