@@ -68,14 +68,20 @@ export function SyncSession({
     if (!session?.id) return;
 
     let cancelled = false;
-    const useLanAddress = session.mode !== "online" && localServerStatus.addresses[0];
-    const host = useLanAddress
-      ? `${localServerStatus.addresses[0]}:${localServerStatus.port || 3001}`
-      : window.location.host;
-    const protocol = (typeof window !== "undefined" && window.location.protocol.startsWith("http"))
-      ? window.location.protocol
-      : "http:";
-    const joinUrl = `${protocol}//${host}/?session=${session.id}`;
+    let joinUrl;
+
+    if (session.mode !== "online" && localServerStatus.addresses[0]) {
+      // Offline local network (LAN hotspot) mode
+      const lanPort = localServerStatus.port || 3001;
+      joinUrl = `http://${localServerStatus.addresses[0]}:${lanPort}/?session=${session.id}`;
+    } else {
+      // Online cloud mode: points to public Vercel frontend
+      const frontendOrigin =
+        typeof window !== "undefined" && !isElectron && !window.location.hostname.includes("localhost")
+          ? window.location.origin
+          : "https://local-music-player-2k9z.vercel.app";
+      joinUrl = `${frontendOrigin}/?session=${session.id}`;
+    }
 
     QRCode.toDataURL(joinUrl, {
       width: 240,
@@ -90,7 +96,7 @@ export function SyncSession({
     return () => {
       cancelled = true;
     };
-  }, [session?.id, session?.mode, localServerStatus]);
+  }, [session?.id, session?.mode, localServerStatus, isElectron]);
 
   // Toggle local network server
   const handleToggleServer = async () => {
@@ -115,16 +121,16 @@ export function SyncSession({
     }
   };
 
-  // Determine server host for this client. Electron and localhost always connect via localhost loopback.
+  // Determine server host for this client. Electron and localhost always connect via localhost loopback for offline mode, and cloud API for online mode.
   const getClientServerHost = (status, mode = "offline") => {
     const port = status?.port || 3001;
     if (isElectron || (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"))) {
+      if (mode === "online") {
+        return api.getBaseUrl();
+      }
       return `http://localhost:${port}`;
     }
-    if (mode === "online") {
-      return window.location.origin;
-    }
-    return window.location.origin;
+    return api.getBaseUrl();
   };
 
   // Create new session as Host
@@ -180,7 +186,7 @@ export function SyncSession({
 
     localStorage.setItem("syncbeat_display_name", inputName);
 
-    const serverHost = getClientServerHost(localServerStatus);
+    const serverHost = getClientServerHost(localServerStatus, "online");
 
     joinSession({
       serverUrl: serverHost,

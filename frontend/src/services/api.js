@@ -5,6 +5,16 @@
 
 import musicService from "./musicService";
 
+function sanitizeUrl(url) {
+  if (!url || typeof url !== "string") return url;
+  let cleaned = url.trim().replace(/\/$/, "");
+  // Defensive correction for accidental typos like .onrender.co
+  if (cleaned.endsWith(".onrender.co")) {
+    cleaned += "m";
+  }
+  return cleaned;
+}
+
 function getBaseUrl() {
   if (typeof window === "undefined") {
     return "http://localhost:3001";
@@ -12,7 +22,7 @@ function getBaseUrl() {
 
   // If explicitly configured via Vite environment variable
   if (import.meta.env?.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL.replace(/\/$/, "");
+    return sanitizeUrl(import.meta.env.VITE_API_URL);
   }
 
   // In Electron desktop environment, always use local loopback
@@ -20,8 +30,16 @@ function getBaseUrl() {
     return "http://localhost:3001";
   }
 
-  // In web browsers (mobile, Mac on hotspot), connect via current origin
-  return window.location.origin;
+  // Local development / loopback
+  if (
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1"
+  ) {
+    return "http://localhost:3001";
+  }
+
+  // Production web fallback (e.g. Vercel frontend calling Render backend)
+  return "https://local-music-player.onrender.com";
 }
 
 /**
@@ -38,7 +56,8 @@ async function request(endpoint, options = {}) {
     headers["Content-Type"] = "application/json";
   }
 
-  const timeoutMs = options.timeoutMs || 15000;
+  // Default timeout 30s to accommodate Render free-tier cold starts
+  const timeoutMs = options.timeoutMs || 30000;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 

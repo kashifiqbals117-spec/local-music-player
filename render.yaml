@@ -19,3 +19,5 @@ services:
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
+      - key: AUDIUS_APP_NAME
+        value: SyncBeat

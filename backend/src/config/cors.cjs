@@ -7,7 +7,7 @@ function parseOrigins(envVal) {
   if (!envVal) return [];
   return envVal
     .split(",")
-    .map((o) => o.trim())
+    .map((o) => o.trim().replace(/\/$/, ""))
     .filter(Boolean);
 }
 
@@ -24,20 +24,23 @@ function getPermittedOrigins() {
     ...parseOrigins(railwayOrigin),
   ];
 
-  const defaultDevOrigins = [
+  const defaultOrigins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3001",
     "http://127.0.0.1:3001",
+    "https://local-music-player-2k9z.vercel.app",
+    "https://local-music-player.onrender.com",
   ];
 
-  return [...new Set([...defaultDevOrigins, ...envOrigins])];
+  return [...new Set([...defaultOrigins, ...envOrigins])];
 }
 
 /**
  * Origin validation function suitable for both express cors and socket.io cors.
  * @param {string|undefined} origin
- * @param {Function} callback (err, allow)
+ * @param {Object} [options]
+ * @returns {boolean}
  */
 function isOriginAllowed(origin, options = {}) {
   // Allow requests with no origin (e.g. mobile apps, Electron desktop, curl, server-to-server)
@@ -48,8 +51,21 @@ function isOriginAllowed(origin, options = {}) {
     return true;
   }
 
-  const allowed = options.allowedOrigins || getPermittedOrigins();
-  if (allowed.includes("*") || allowed.includes(origin)) {
+  const cleanOrigin = origin.trim().replace(/\/$/, "");
+
+  const customAllowed = Array.isArray(options.corsOrigin)
+    ? options.corsOrigin.map((o) => (typeof o === "string" ? o.trim().replace(/\/$/, "") : o))
+    : options.corsOrigin
+    ? [String(options.corsOrigin).trim().replace(/\/$/, "")]
+    : options.allowedOrigins || [];
+
+  const allowed = [...getPermittedOrigins(), ...customAllowed];
+  if (allowed.includes("*") || allowed.includes(cleanOrigin)) {
+    return true;
+  }
+
+  // Allow all Vercel deployment and preview subdomains for this project
+  if (/^https:\/\/local-music-player[a-z0-9-]*\.vercel\.app$/.test(cleanOrigin)) {
     return true;
   }
 
@@ -57,7 +73,7 @@ function isOriginAllowed(origin, options = {}) {
   const isDevOrOffline = process.env.NODE_ENV !== "production" || options.mode === "offline";
   if (isDevOrOffline) {
     const isPrivateLan = /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$/.test(
-      origin
+      cleanOrigin
     );
     if (isPrivateLan) return true;
   }

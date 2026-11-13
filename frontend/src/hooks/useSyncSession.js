@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createSocketConnection, getDefaultSocketUrl } from "../services/socket";
 import musicService from "../services/musicService";
+import api from "../services/api";
 
 /**
  * Compute SHA-256 of an ArrayBuffer in browser.
@@ -930,7 +931,7 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
 
       // Online Audius Track sharing
       if (isOnlineTrack) {
-        const serverHost = serverUrlRef.current || window.location.origin;
+        const serverHost = serverUrlRef.current || api.getBaseUrl();
         const res = await fetch(`${serverHost}/api/sessions/${session.id}/track`, {
           method: "POST",
           headers: {
@@ -981,7 +982,7 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
         setTimeout(() => setShareSuccess(null), 5000);
         return { success: true, track: res.track };
       } else {
-        const serverHost = serverUrlRef.current || window.location.origin;
+        const serverHost = serverUrlRef.current || api.getBaseUrl();
         const res = await fetch(`${serverHost}/api/sessions/${session.id}/track`, {
           method: "POST",
           headers: {

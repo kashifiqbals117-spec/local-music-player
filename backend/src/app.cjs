@@ -68,6 +68,13 @@ function createApp({ sessionManager, io, uploadDir, corsOptions = {}, getPort, a
         next();
       }
     });
+  } else {
+    // When frontend is hosted separately on Vercel, redirect root hits gracefully
+    app.get("/", (req, res) => {
+      const frontendUrl = (process.env.FRONTEND_URL || "https://local-music-player-2k9z.vercel.app").replace(/\/$/, "");
+      const target = req.query.session ? `${frontendUrl}/?session=${encodeURIComponent(req.query.session)}` : frontendUrl;
+      res.redirect(302, target);
+    });
   }
 
   // 7. Centralized Error Handler

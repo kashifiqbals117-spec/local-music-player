@@ -7,9 +7,26 @@ import { io } from "socket.io-client";
 import musicService from "./musicService";
 
 /**
+ * Sanitize Socket.IO URL to prevent trailing slashes and fix host typos.
+ */
+export function sanitizeSocketUrl(url) {
+  if (!url || typeof url !== "string") return url;
+  let cleaned = url.trim().replace(/\/$/, "");
+  if (cleaned.endsWith(".onrender.co")) {
+    cleaned += "m";
+  }
+  // Vercel only hosts the static frontend; redirect socket connection to Render backend
+  if (cleaned.includes("vercel.app")) {
+    return "https://local-music-player.onrender.com";
+  }
+  return cleaned;
+}
+
+/**
  * Determine default Socket.IO endpoint.
  * In Electron: http://localhost:3001
- * In browser: window.location.origin (which proxies to backend via Vite in dev or connects to 3001 directly)
+ * In local browser: http://localhost:3001
+ * In production web: https://local-music-player.onrender.com
  */
 export function getDefaultSocketUrl() {
   if (typeof window === "undefined") {
@@ -17,18 +34,21 @@ export function getDefaultSocketUrl() {
   }
 
   if (import.meta.env?.VITE_SOCKET_URL) {
-    return import.meta.env.VITE_SOCKET_URL;
+    return sanitizeSocketUrl(import.meta.env.VITE_SOCKET_URL);
   }
 
   if (musicService.isElectron()) {
     return "http://localhost:3001";
   }
 
-  if (window.location.protocol.startsWith("http")) {
-    return window.location.origin;
+  if (
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1"
+  ) {
+    return "http://localhost:3001";
   }
 
-  return "http://localhost:3001";
+  return "https://local-music-player.onrender.com";
 }
 
 /**
@@ -38,7 +58,8 @@ export function getDefaultSocketUrl() {
  * @returns {Socket}
  */
 export function createSocketConnection(serverUrl, customOptions = {}) {
-  const targetUrl = serverUrl || getDefaultSocketUrl();
+  const rawUrl = serverUrl || getDefaultSocketUrl();
+  const targetUrl = sanitizeSocketUrl(rawUrl);
 
   const defaultOptions = {
     transports: ["websocket", "polling"],

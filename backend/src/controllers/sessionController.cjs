@@ -45,14 +45,24 @@ function createSessionController({ sessionManager, io, getPort }) {
     // Generate QR code for session
     getQrCode: async (req, res) => {
       const sessionId = req.params.sessionId.toUpperCase().trim();
-      if (!sessionManager.hasSession(sessionId)) {
+      const session = sessionManager.getSession(sessionId);
+      if (!session) {
         return res.status(404).json({ error: "Session not found." });
       }
 
-      const port = getPort ? getPort() : 3001;
-      const hostHeader = req.get("host") || `localhost:${port}`;
-      const protocol = req.protocol || "http";
-      const joinUrl = `${protocol}://${hostHeader}/?session=${sessionId}`;
+      const hostHeader = req.get("host") || "";
+      const isPrivateLan = /^((192\.168\.\d+\.\d+)|(10\.\d+\.\d+\.\d+)|(172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+))(:\d+)?$/.test(hostHeader);
+
+      let joinUrl;
+      if (session.mode === "online" || !isPrivateLan) {
+        // Point to public Vercel frontend for cloud / online sessions
+        const frontendBase = (process.env.FRONTEND_URL || "https://local-music-player-2k9z.vercel.app").replace(/\/$/, "");
+        joinUrl = `${frontendBase}/?session=${sessionId}`;
+      } else {
+        const port = getPort ? getPort() : 3001;
+        const protocol = req.protocol || "http";
+        joinUrl = `${protocol}://${hostHeader || `localhost:${port}`}/?session=${sessionId}`;
+      }
 
       try {
         const qrDataUrl = await QRCode.toDataURL(joinUrl, {
@@ -123,6 +133,7 @@ function createSessionController({ sessionManager, io, getPort }) {
           track: trackResult.track,
           downloadUrl: streamUrl,
         });
+        io.to(`session_${sessionId}`).emit("session-updated", sessionManager.getPublicState(sessionId));
 
         return res.status(201).json({
           success: true,
