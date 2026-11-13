@@ -355,24 +355,31 @@ class SessionManager {
     const session = this.getSession(sessionId);
     session.trackVersion += 1;
 
+    const isOnline = track.source === "audius" || Boolean(track.streamUrl);
+
     session.currentTrack = {
       id: track.id || randomUUID(),
       title: track.title || track.name || "Untitled Track",
       artist: track.artist || "Unknown Artist",
       album: track.album || "",
       duration: Number(track.duration) || 0,
-      hash: track.hash || "", // SHA-256
+      hash: track.hash || (isOnline ? `audius-${track.id}` : ""), // SHA-256 or audius ref
       size: Number(track.size) || 0,
       mimeType: track.mimeType || "audio/mpeg",
       filename: track.filename || "track.mp3",
       filePath: track.filePath || null,
+      source: isOnline ? "audius" : (track.source || "local"),
+      streamUrl: track.streamUrl || (isOnline ? `/api/music/stream/${track.id}` : null),
+      artwork: track.artwork || null,
       version: session.trackVersion,
       uploadedAt: Date.now(),
     };
 
-    // Reset readiness on new track: Host has local file ready, guests must verify
+    // Reset readiness on new track:
+    // If local file: Host has local file ready on disk, guests must verify
+    // If online stream: Host and guests must both buffer the stream and acknowledge readiness
     for (const p of session.participants.values()) {
-      p.isReady = Boolean(p.isHost);
+      p.isReady = isOnline ? false : Boolean(p.isHost);
       p.position = 0;
     }
 
@@ -682,6 +689,9 @@ class SessionManager {
             hash: session.currentTrack.hash,
             size: session.currentTrack.size,
             version: session.currentTrack.version,
+            source: session.currentTrack.source,
+            streamUrl: session.currentTrack.streamUrl,
+            artwork: session.currentTrack.artwork,
           }
         : null,
       playback: {

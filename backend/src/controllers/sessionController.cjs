@@ -87,6 +87,48 @@ function createSessionController({ sessionManager, io, getPort }) {
         originalName = req.file.originalname;
         fileSize = req.file.size;
         mimeType = req.file.mimetype || "audio/mpeg";
+      } else if (req.body?.source === "audius" || req.body?.onlineTrack || req.body?.streamUrl) {
+        // Online track registration (Audius streaming track)
+        const online = req.body.onlineTrack || req.body;
+        const trackId = online.id || online.trackId;
+        const trackTitle = online.title || online.name || "Untitled Track";
+        const trackArtist = online.artist || "Unknown Artist";
+        const trackAlbum = online.album || "";
+        const trackDuration = Number(online.duration) || 0;
+        const trackArtwork = online.artwork || null;
+        const streamUrl = online.streamUrl || `/api/music/stream/${trackId}`;
+
+        const trackResult = sessionManager.setTrack(sessionId, hostToken, {
+          id: trackId,
+          title: trackTitle,
+          artist: trackArtist,
+          album: trackAlbum,
+          duration: trackDuration,
+          hash: `audius-${trackId}`,
+          size: 0,
+          mimeType: "audio/mpeg",
+          filename: `${trackTitle}.mp3`,
+          filePath: null,
+          source: "audius",
+          streamUrl,
+          artwork: trackArtwork,
+        });
+
+        if (!trackResult.success) {
+          return res.status(400).json({ error: trackResult.error });
+        }
+
+        // Notify all session participants via WebSocket with streaming URL
+        io.to(`session_${sessionId}`).emit("track-published", {
+          track: trackResult.track,
+          downloadUrl: streamUrl,
+        });
+
+        return res.status(201).json({
+          success: true,
+          track: trackResult.track,
+          downloadUrl: streamUrl,
+        });
       } else if (req.body?.localFilePath) {
         // Local file registration by desktop Electron host
         const localPath = req.body.localFilePath;
@@ -142,13 +184,23 @@ function createSessionController({ sessionManager, io, getPort }) {
       }
     },
 
-    // Stream track (HTTP 206 Partial Content)
+    // Stream track (HTTP 206 Partial Content or redirect for online stream)
     streamTrack: (req, res) => {
       const sessionId = req.params.sessionId.toUpperCase().trim();
       const session = sessionManager.getSession(sessionId);
 
-      if (!session || !session.currentTrack || !session.currentTrack.filePath) {
+      if (!session || !session.currentTrack) {
         return res.status(404).send("No track available in this session.");
+      }
+
+      // If current track is an online Audius track, redirect to stream URL
+      if (session.currentTrack.source === "audius" || session.currentTrack.streamUrl) {
+        const streamUrl = session.currentTrack.streamUrl || `/api/music/stream/${session.currentTrack.id}`;
+        return res.redirect(302, streamUrl);
+      }
+
+      if (!session.currentTrack.filePath) {
+        return res.status(404).send("Audio file path missing for session track.");
       }
 
       const { filePath, filename, mimeType, size } = session.currentTrack;

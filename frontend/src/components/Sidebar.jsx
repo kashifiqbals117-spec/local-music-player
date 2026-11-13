@@ -2,6 +2,7 @@ export function Sidebar({ activeTab, onSelectTab }) {
   const navItems = [
     { id: "home", label: "Home", icon: "🏠" },
     { id: "songs", label: "Songs", icon: "🎵" },
+    { id: "online", label: "Online Music", icon: "🌐" },
     { id: "albums", label: "Albums", icon: "💿" },
     { id: "artists", label: "Artists", icon: "🎤" },
     { id: "playlists", label: "Playlists", icon: "📂" },

@@ -26,7 +26,9 @@
     "test:timing": "node tests/playbackTiming.test.cjs",
     "test:cors": "node tests/cors.test.cjs",
     "test:media": "node tests/mediaUpload.test.cjs",
-    "test": "node tests/sessionManager.test.cjs && node tests/manualResyncEdgeCases.test.cjs && node tests/syncServer.test.cjs && node tests/endToEndSync.test.cjs && node tests/shareWorkflow.test.cjs && node tests/playbackTiming.test.cjs && node tests/cors.test.cjs && node tests/mediaUpload.test.cjs"
+    "test:audius": "node tests/audiusService.test.cjs",
+    "test:onlinesync": "node tests/onlineSync.test.cjs",
+    "test": "node tests/sessionManager.test.cjs && node tests/manualResyncEdgeCases.test.cjs && node tests/syncServer.test.cjs && node tests/endToEndSync.test.cjs && node tests/shareWorkflow.test.cjs && node tests/playbackTiming.test.cjs && node tests/cors.test.cjs && node tests/mediaUpload.test.cjs && node tests/audiusService.test.cjs && node tests/onlineSync.test.cjs"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

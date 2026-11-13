@@ -191,11 +191,15 @@ export function SyncSession({
     if (onSetSessionId) onSetSessionId(inputSessionId.toUpperCase().trim());
   };
 
-  // Share song from desktop library to session
+  // Share song from desktop library or online music to session
   const handleShareSong = async (songToShare) => {
     if (!songToShare) return;
+    const isOnline = songToShare.source === "audius" || Boolean(songToShare.streamUrl);
+    const songId = isOnline ? (songToShare.id || songToShare.streamUrl) : songToShare.path;
+    const currentId = currentSong?.source === "audius" ? (currentSong.id || currentSong.streamUrl) : currentSong?.path;
+
     // Prepare track in player without starting premature uncoordinated playback
-    if (onPlaySong && (!currentSong || currentSong.path !== songToShare.path)) {
+    if (onPlaySong && (!currentSong || currentId !== songId)) {
       onPlaySong(songToShare, { autoPlay: false });
     }
     if (shareSong) {
@@ -454,14 +458,37 @@ export function SyncSession({
 
                   {sharedTrack ? (
                     <div className="shared-track-details">
-                      <div className="track-art">🎵</div>
+                      <div className="track-art">
+                        {sharedTrack.artwork ? (
+                          <img
+                            src={sharedTrack.artwork}
+                            alt=""
+                            style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "8px" }}
+                          />
+                        ) : (
+                          <span>{sharedTrack.source === "audius" ? "🌐" : "🎵"}</span>
+                        )}
+                      </div>
                       <div className="track-meta">
                         <strong>{sharedTrack.title}</strong>
                         <span>{sharedTrack.artist}</span>
                         <div className="track-badges">
-                          {isTrackVerified && <span className="badge badge-verified">✔ SHA-256 Verified</span>}
-                          {isTransferring && <span className="badge badge-transferring">Receiving {transferProgress}%</span>}
-                          <span className="badge">{(sharedTrack.size / (1024 * 1024)).toFixed(1)} MB</span>
+                          {sharedTrack.source === "audius" && (
+                            <span className="badge badge-audius" style={{ background: "rgba(147, 51, 234, 0.25)", color: "#c084fc", border: "1px solid #a855f7" }}>
+                              Audius Online
+                            </span>
+                          )}
+                          {isTrackVerified && (
+                            <span className="badge badge-verified">
+                              {sharedTrack.source === "audius" ? "✔ Stream Ready" : "✔ SHA-256 Verified"}
+                            </span>
+                          )}
+                          {isTransferring && (
+                            <span className="badge badge-transferring">
+                              {sharedTrack.source === "audius" ? "Buffering audio stream..." : `Receiving ${transferProgress}%`}
+                            </span>
+                          )}
+                          {sharedTrack.size > 0 && <span className="badge">{(sharedTrack.size / (1024 * 1024)).toFixed(1)} MB</span>}
                         </div>
                       </div>
                     </div>

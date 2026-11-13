@@ -146,6 +146,76 @@ export const api = {
       }
     );
   },
+
+  /* ========================================================================
+     ONLINE MUSIC & AUDIUS API
+     ======================================================================== */
+
+  /**
+   * Search tracks online via Audius.
+   */
+  async searchMusic({ query, genre, limit = 20, offset = 0 } = {}, baseUrl) {
+    const params = new URLSearchParams();
+    if (query) params.set("query", query);
+    if (genre && genre !== "all") params.set("genre", genre);
+    if (limit) params.set("limit", String(limit));
+    if (offset) params.set("offset", String(offset));
+    return await request(`/api/music/search?${params.toString()}`, { baseUrl });
+  },
+
+  /**
+   * Get trending tracks online via Audius.
+   */
+  async getTrendingMusic({ genre, time = "week", limit = 25, offset = 0 } = {}, baseUrl) {
+    const params = new URLSearchParams();
+    if (genre && genre !== "all") params.set("genre", genre);
+    if (time) params.set("time", time);
+    if (limit) params.set("limit", String(limit));
+    if (offset) params.set("offset", String(offset));
+    return await request(`/api/music/trending?${params.toString()}`, { baseUrl });
+  },
+
+  /**
+   * Search artists online via Audius.
+   */
+  async searchArtists({ query, limit = 10 } = {}, baseUrl) {
+    const params = new URLSearchParams();
+    if (query) params.set("query", query);
+    if (limit) params.set("limit", String(limit));
+    return await request(`/api/music/artists/search?${params.toString()}`, { baseUrl });
+  },
+
+  /**
+   * Get details for a single track.
+   */
+  async getTrackDetails(trackId, baseUrl) {
+    return await request(`/api/music/tracks/${encodeURIComponent(trackId)}`, { baseUrl });
+  },
+
+  /**
+   * Get profile for an artist.
+   */
+  async getArtistDetails(artistId, baseUrl) {
+    return await request(`/api/music/artists/${encodeURIComponent(artistId)}`, { baseUrl });
+  },
+
+  /**
+   * Get tracks by an artist.
+   */
+  async getArtistTracks(artistId, limit = 20, baseUrl) {
+    return await request(
+      `/api/music/artists/${encodeURIComponent(artistId)}/tracks?limit=${limit}`,
+      { baseUrl }
+    );
+  },
+
+  /**
+   * Get full streaming URL for an online track.
+   */
+  getStreamUrl(trackId, baseUrl) {
+    const base = baseUrl || getBaseUrl();
+    return `${base.replace(/\/$/, "")}/api/music/stream/${encodeURIComponent(trackId)}`;
+  },
 };
 
 export default api;
