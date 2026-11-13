@@ -114,10 +114,11 @@ export function useAudioPlayer() {
 
       let url;
       if (isOnlineTrack) {
-        url = song.streamUrl || song.url || (song.id ? api.getStreamUrl(song.id) : null);
-        if (!url) {
+        const rawUrl = song.streamUrl || song.url || (song.id ? api.getStreamUrl(song.id) : null);
+        if (!rawUrl) {
           throw new Error("Missing stream URL for online track.");
         }
+        url = api.resolveApiUrl(rawUrl);
       } else {
         const result = await musicService.readMusicFile(song.path);
         if (!result.success) {

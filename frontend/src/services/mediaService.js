@@ -3,7 +3,7 @@
  * Handles Cloudinary uploads for playlist covers, album artwork, and status checks.
  */
 
-import { api } from "./api";
+import api from "./api";
 
 export const mediaService = {
   /**
@@ -13,8 +13,8 @@ export const mediaService = {
    */
   async getStatus(baseUrl) {
     try {
-      const base = baseUrl || api.getBaseUrl();
-      const res = await fetch(`${base}/api/media/status`);
+      const url = api.resolveApiUrl("/api/media/status", baseUrl);
+      const res = await fetch(url);
       if (!res.ok) {
         return { success: false, configured: false };
       }
@@ -44,9 +44,9 @@ export const mediaService = {
     if (category) formData.append("category", category);
     if (resourceId) formData.append("resourceId", resourceId);
 
-    const base = baseUrl || api.getBaseUrl();
+    const url = api.resolveApiUrl("/api/media/upload", baseUrl);
     try {
-      const res = await fetch(`${base}/api/media/upload`, {
+      const res = await fetch(url, {
         method: "POST",
         body: formData,
       });
@@ -75,9 +75,9 @@ export const mediaService = {
   async deleteImage(publicId, baseUrl) {
     if (!publicId) return { success: false, error: "Public ID is required." };
 
-    const base = baseUrl || api.getBaseUrl();
+    const url = api.resolveApiUrl("/api/media/destroy", baseUrl);
     try {
-      const res = await fetch(`${base}/api/media/destroy`, {
+      const res = await fetch(url, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ publicId }),

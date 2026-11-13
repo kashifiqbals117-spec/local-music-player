@@ -30,6 +30,8 @@ dist-ssr
 .env
 .env.*
 !.env.example
+!frontend/.env.production
+!frontend/.env.development
 
 # Local databases
 *.db

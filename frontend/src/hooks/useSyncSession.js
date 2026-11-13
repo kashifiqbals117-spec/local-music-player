@@ -330,10 +330,7 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
 
         try {
           const pathUrl = track.streamUrl || downloadUrl || `/api/music/stream/${track.id}`;
-          const base = targetUrl || getDefaultSocketUrl();
-          const fullStreamUrl = pathUrl.startsWith("http")
-            ? pathUrl
-            : `${base.replace(/\/$/, "")}${pathUrl.startsWith("/") ? pathUrl : `/${pathUrl}`}`;
+          const fullStreamUrl = api.resolveApiUrl(pathUrl, targetUrl);
 
           setBlobUrlSafe(fullStreamUrl);
           loadedTrackRef.current = { id: track.id, version: track.version };
@@ -374,8 +371,7 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
 
       try {
         const pathUrl = downloadUrl || `/api/sessions/${cleanSessionId}/track?v=${track.version || 0}`;
-        const base = targetUrl || getDefaultSocketUrl();
-        const fullDownloadUrl = base ? `${base.replace(/\/$/, "")}${pathUrl}` : pathUrl;
+        const fullDownloadUrl = api.resolveApiUrl(pathUrl, targetUrl);
 
         // Fetch track with download progress
         const response = await fetch(fullDownloadUrl, { cache: "no-store" });
@@ -931,14 +927,11 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
 
       // Online Audius Track sharing
       if (isOnlineTrack) {
-        const serverHost = serverUrlRef.current || api.getBaseUrl();
-        const res = await fetch(`${serverHost}/api/sessions/${session.id}/track`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-host-token": hostToken,
-          },
-          body: JSON.stringify({
+        const streamUrl = song.streamUrl || (song.id ? api.getStreamUrl(song.id) : null);
+        const data = await api.setTrack(
+          session.id,
+          hostToken,
+          {
             source: "audius",
             id: song.id,
             title: songTitle,
@@ -946,14 +939,10 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
             album: song.album || "",
             duration: Number(song.duration) || 0,
             artwork: song.artwork || null,
-            streamUrl: song.streamUrl || `/api/music/stream/${song.id}`,
-          }),
-        });
-
-        const data = await res.json();
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || "Failed to share online track via server API.");
-        }
+            streamUrl: streamUrl || `/api/music/stream/${song.id}`,
+          },
+          serverUrlRef.current
+        );
 
         const msg = `"${songTitle}" shared with session!`;
         setShareSuccess(msg);
@@ -982,26 +971,18 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
         setTimeout(() => setShareSuccess(null), 5000);
         return { success: true, track: res.track };
       } else {
-        const serverHost = serverUrlRef.current || api.getBaseUrl();
-        const res = await fetch(`${serverHost}/api/sessions/${session.id}/track`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-host-token": hostToken,
-          },
-          body: JSON.stringify({
+        const data = await api.setTrack(
+          session.id,
+          hostToken,
+          {
             localFilePath: song.path,
             title: songTitle,
             artist: song.artist || "Unknown Artist",
             album: song.album || "",
             duration: song.duration || 0,
-          }),
-        });
-
-        const data = await res.json();
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || "Failed to share song via server API.");
-        }
+          },
+          serverUrlRef.current
+        );
 
         const msg = `"${songTitle}" shared with session!`;
         setShareSuccess(msg);

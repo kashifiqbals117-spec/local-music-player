@@ -5,24 +5,36 @@
 
 import musicService from "./musicService";
 
-function sanitizeUrl(url) {
-  if (!url || typeof url !== "string") return url;
+export const RENDER_BACKEND_URL = "https://local-music-player.onrender.com";
+
+/**
+ * Sanitize API URLs to fix typos, strip trailing slashes, and redirect Vercel domain hits.
+ */
+export function sanitizeUrl(url) {
+  if (!url || typeof url !== "string") return RENDER_BACKEND_URL;
   let cleaned = url.trim().replace(/\/$/, "");
+  if (!cleaned || cleaned === "/" || cleaned.startsWith("/api")) {
+    return RENDER_BACKEND_URL;
+  }
   // Defensive correction for accidental typos like .onrender.co
   if (cleaned.endsWith(".onrender.co")) {
     cleaned += "m";
   }
+  // Vercel only hosts static frontend SPA; redirect any backend calls to Render
+  if (cleaned.includes("vercel.app")) {
+    return RENDER_BACKEND_URL;
+  }
   return cleaned;
 }
 
-function getBaseUrl() {
+/**
+ * Determine backend base URL.
+ * In Electron / local dev: http://localhost:3001
+ * In all web browser environments (Vercel, mobile): https://local-music-player.onrender.com
+ */
+export function getBaseUrl() {
   if (typeof window === "undefined") {
     return "http://localhost:3001";
-  }
-
-  // If explicitly configured via Vite environment variable
-  if (import.meta.env?.VITE_API_URL) {
-    return sanitizeUrl(import.meta.env.VITE_API_URL);
   }
 
   // In Electron desktop environment, always use local loopback
@@ -38,16 +50,81 @@ function getBaseUrl() {
     return "http://localhost:3001";
   }
 
-  // Production web fallback (e.g. Vercel frontend calling Render backend)
-  return "https://local-music-player.onrender.com";
+  // If explicitly configured via Vite environment variable, sanitize it
+  const envUrl = import.meta.env?.VITE_API_URL;
+  if (envUrl && typeof envUrl === "string" && envUrl.trim()) {
+    const sanitized = sanitizeUrl(envUrl);
+    if (!sanitized.includes("vercel.app")) {
+      return sanitized;
+    }
+  }
+
+  // Production web fallback (Vercel production, preview deployments, mobile)
+  return RENDER_BACKEND_URL;
+}
+
+/**
+ * Convert any relative API endpoint or stream path into an absolute URL targeting the backend.
+ * @param {string} pathOrUrl
+ * @param {string} [customBase]
+ * @returns {string}
+ */
+export function resolveApiUrl(pathOrUrl, customBase) {
+  if (!pathOrUrl || typeof pathOrUrl !== "string") return "";
+
+  // Blob and Data URIs for local playback
+  if (pathOrUrl.startsWith("blob:") || pathOrUrl.startsWith("data:")) {
+    return pathOrUrl;
+  }
+
+  // Absolute URLs
+  if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
+    // If an absolute URL mistakenly targets Vercel frontend, rewrite to Render backend
+    if (pathOrUrl.includes("vercel.app")) {
+      const parsed = new URL(pathOrUrl);
+      const backend = new URL(getBaseUrl());
+      parsed.protocol = backend.protocol;
+      parsed.host = backend.host;
+      return parsed.toString();
+    }
+    return pathOrUrl;
+  }
+
+  // Relative paths
+  let base;
+  if (customBase && typeof customBase === "string") {
+    base = sanitizeUrl(customBase);
+  } else {
+    base = getBaseUrl();
+  }
+
+  if (base.includes("vercel.app")) {
+    base = RENDER_BACKEND_URL;
+  }
+
+  const cleanPath = pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
+  return `${base.replace(/\/$/, "")}${cleanPath}`;
 }
 
 /**
  * Standard fetch wrapper with timeout and JSON handling.
  */
 async function request(endpoint, options = {}) {
-  const baseUrl = options.baseUrl || getBaseUrl();
-  const url = `${baseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+  let baseUrl;
+  if (options.baseUrl && typeof options.baseUrl === "string") {
+    const candidate = sanitizeUrl(options.baseUrl);
+    baseUrl = candidate.includes("vercel.app") ? getBaseUrl() : candidate;
+  } else {
+    baseUrl = getBaseUrl();
+  }
+
+  // Never allow requests to point to Vercel static origin in production web
+  if (!baseUrl || baseUrl.includes("vercel.app") || (baseUrl === window?.location?.origin && !window.location.hostname.includes("localhost"))) {
+    baseUrl = RENDER_BACKEND_URL;
+  }
+
+  const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  const url = `${baseUrl}${cleanEndpoint}`;
 
   const headers = { ...options.headers };
 
@@ -232,9 +309,10 @@ export const api = {
    * Get full streaming URL for an online track.
    */
   getStreamUrl(trackId, baseUrl) {
-    const base = baseUrl || getBaseUrl();
-    return `${base.replace(/\/$/, "")}/api/music/stream/${encodeURIComponent(trackId)}`;
+    return resolveApiUrl(`/api/music/stream/${encodeURIComponent(trackId)}`, baseUrl);
   },
+  resolveApiUrl,
+  sanitizeUrl,
 };
 
 export default api;

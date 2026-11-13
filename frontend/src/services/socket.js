@@ -10,8 +10,11 @@ import musicService from "./musicService";
  * Sanitize Socket.IO URL to prevent trailing slashes and fix host typos.
  */
 export function sanitizeSocketUrl(url) {
-  if (!url || typeof url !== "string") return url;
+  if (!url || typeof url !== "string") return "https://local-music-player.onrender.com";
   let cleaned = url.trim().replace(/\/$/, "");
+  if (!cleaned || cleaned === "/" || cleaned.startsWith("/api")) {
+    return "https://local-music-player.onrender.com";
+  }
   if (cleaned.endsWith(".onrender.co")) {
     cleaned += "m";
   }
@@ -58,8 +61,21 @@ export function getDefaultSocketUrl() {
  * @returns {Socket}
  */
 export function createSocketConnection(serverUrl, customOptions = {}) {
-  const rawUrl = serverUrl || getDefaultSocketUrl();
-  const targetUrl = sanitizeSocketUrl(rawUrl);
+  let targetUrl;
+  if (serverUrl && typeof serverUrl === "string") {
+    targetUrl = sanitizeSocketUrl(serverUrl);
+  } else {
+    targetUrl = getDefaultSocketUrl();
+  }
+
+  // Never attempt to open WebSocket connections to Vercel static origin in production web
+  if (
+    !targetUrl ||
+    targetUrl.includes("vercel.app") ||
+    (typeof window !== "undefined" && targetUrl === window.location.origin && !window.location.hostname.includes("localhost"))
+  ) {
+    targetUrl = "https://local-music-player.onrender.com";
+  }
 
   const defaultOptions = {
     transports: ["websocket", "polling"],
