@@ -44,6 +44,13 @@ function validateEnv() {
     info.push("Cloudinary credentials not set; media uploads will run in local fallback mode");
   }
 
+  // Audius API check
+  const audiusAppName = process.env.AUDIUS_APP_NAME || "SyncBeat";
+  info.push(`Audius integration active (app name: "${audiusAppName}")`);
+  if (process.env.AUDIUS_API_KEY) {
+    info.push("Audius API Key configured for elevated rate limits");
+  }
+
   return {
     valid: warnings.length === 0,
     warnings,

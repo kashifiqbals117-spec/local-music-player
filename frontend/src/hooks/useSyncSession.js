@@ -191,7 +191,7 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
   // Cleanup Blob URL on unmount or new track
   const currentBlobUrlRef = useRef(null);
   const setBlobUrlSafe = (url) => {
-    if (currentBlobUrlRef.current && currentBlobUrlRef.current !== url) {
+    if (currentBlobUrlRef.current && currentBlobUrlRef.current !== url && currentBlobUrlRef.current.startsWith("blob:")) {
       URL.revokeObjectURL(currentBlobUrlRef.current);
     }
     currentBlobUrlRef.current = url;
@@ -200,7 +200,7 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
 
   useEffect(() => {
     return () => {
-      if (currentBlobUrlRef.current) {
+      if (currentBlobUrlRef.current && currentBlobUrlRef.current.startsWith("blob:")) {
         URL.revokeObjectURL(currentBlobUrlRef.current);
       }
       if (preciseActionRef.current) {
@@ -304,8 +304,10 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
 
       setSharedTrack(track);
 
-      // If this device is the session host, avoid re-fetching over HTTP to maintain uninterrupted local playback.
-      if (hostTokenRef.current) {
+      const isOnlineTrack = track.source === "audius" || Boolean(track.streamUrl);
+
+      // If local track and this device is the session host, local file is already available
+      if (hostTokenRef.current && !isOnlineTrack) {
         setIsTrackVerified(true);
         setIsTransferring(false);
         setTransferProgress(100);
@@ -317,6 +319,52 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
         return;
       }
 
+      // Online streaming track: pre-buffer audio pipeline directly from streaming endpoint
+      if (isOnlineTrack) {
+        isDownloadingRef.current = true;
+        setIsTransferring(true);
+        setTransferProgress(30);
+        setTransferError(null);
+        setIsTrackVerified(true);
+
+        try {
+          const pathUrl = track.streamUrl || downloadUrl || `/api/music/stream/${track.id}`;
+          const base = targetUrl || getDefaultSocketUrl();
+          const fullStreamUrl = pathUrl.startsWith("http")
+            ? pathUrl
+            : `${base.replace(/\/$/, "")}${pathUrl.startsWith("/") ? pathUrl : `/${pathUrl}`}`;
+
+          setBlobUrlSafe(fullStreamUrl);
+          loadedTrackRef.current = { id: track.id, version: track.version };
+
+          // Pre-buffer audio pipeline and wait until canplay / canplaythrough
+          const audioReady = await prepareAudioElement(audioRef?.current, fullStreamUrl);
+          if (audioRef?.current) {
+            audioRef.current.currentTime = 0;
+          }
+
+          setTransferProgress(100);
+          setIsTransferring(false);
+
+          console.log(
+            `[SyncBeat Audio Timing] Online Audius track pre-buffered (readyState: ${audioRef?.current?.readyState || 0}, isReady: ${audioReady})`
+          );
+
+          sock.emit("track-ready-ack", {
+            sessionId: cleanSessionId,
+            isReady: audioReady,
+          });
+        } catch (err) {
+          console.error("Online track buffering error:", err);
+          setIsTransferring(false);
+          setTransferError(err.message);
+        } finally {
+          isDownloadingRef.current = false;
+        }
+        return;
+      }
+
+      // Local track transfer for guests
       isDownloadingRef.current = true;
       setIsTrackVerified(false);
       setTransferProgress(0);
@@ -848,9 +896,9 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
     });
   }, [socket, session, hostToken]);
 
-  // Share a song from local library with the session
+  // Share a song (local file or online Audius track) with the session
   const shareSong = useCallback(async (song) => {
-    if (!song || !song.path) {
+    if (!song) {
       setShareError("No song selected to share.");
       return { success: false, error: "No song selected to share." };
     }
@@ -863,12 +911,56 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
       return { success: false, error: "Only the session host can share songs." };
     }
 
+    const isOnlineTrack =
+      song.source === "audius" ||
+      Boolean(song.streamUrl) ||
+      (!song.path && (Boolean(song.url) || Boolean(song.id)));
+
+    if (!isOnlineTrack && !song.path) {
+      setShareError("No audio path or stream available for this track.");
+      return { success: false, error: "No audio path or stream available." };
+    }
+
     setIsSharingTrack(true);
     setShareError(null);
     setShareSuccess(null);
 
     try {
       const songTitle = song.name || song.title || "Untitled Track";
+
+      // Online Audius Track sharing
+      if (isOnlineTrack) {
+        const serverHost = serverUrlRef.current || window.location.origin;
+        const res = await fetch(`${serverHost}/api/sessions/${session.id}/track`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-host-token": hostToken,
+          },
+          body: JSON.stringify({
+            source: "audius",
+            id: song.id,
+            title: songTitle,
+            artist: song.artist || "Unknown Artist",
+            album: song.album || "",
+            duration: Number(song.duration) || 0,
+            artwork: song.artwork || null,
+            streamUrl: song.streamUrl || `/api/music/stream/${song.id}`,
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || "Failed to share online track via server API.");
+        }
+
+        const msg = `"${songTitle}" shared with session!`;
+        setShareSuccess(msg);
+        setTimeout(() => setShareSuccess(null), 5000);
+        return { success: true, track: data.track };
+      }
+
+      // Local file sharing
       if (musicService.isElectron()) {
         const res = await musicService.shareSongToSession({
           sessionId: session.id,

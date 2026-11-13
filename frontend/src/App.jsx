@@ -13,6 +13,7 @@ import Albums from "./pages/Albums";
 import Artists from "./pages/Artists";
 import Playlists from "./pages/Playlists";
 import SyncSession from "./pages/SyncSession";
+import OnlineMusic from "./pages/OnlineMusic";
 
 function getInitialSessionIdFromUrl() {
   if (typeof window === "undefined") return "";
@@ -57,6 +58,10 @@ function App() {
     handlePlay,
     handlePause,
     handleEnded,
+    queue,
+    addToQueue,
+    removeFromQueue,
+    clearQueue,
   } = useAudioPlayer();
 
   const syncSession = useSyncSession({
@@ -123,6 +128,17 @@ function App() {
 
       case "playlists":
         return <Playlists {...commonProps} />;
+
+      case "online":
+        return (
+          <OnlineMusic
+            currentSong={currentSong}
+            isPlaying={isPlaying}
+            onPlaySong={playSong}
+            onAddToQueue={addToQueue}
+            syncSession={syncSession}
+          />
+        );
 
       case "sync":
         return (
@@ -205,6 +221,9 @@ function App() {
         isHost={Boolean(syncSession.hostToken)}
         sharedTrack={syncSession.sharedTrack}
         trackBlobUrl={syncSession.trackBlobUrl}
+        queue={queue}
+        onRemoveFromQueue={removeFromQueue}
+        onClearQueue={clearQueue}
       />
     </div>
   );

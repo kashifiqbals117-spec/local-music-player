@@ -12,10 +12,17 @@ const { createAudioUploadMiddleware } = require("./middleware/uploadMiddleware.c
 const { createSessionController } = require("./controllers/sessionController.cjs");
 const { createSessionRoutes } = require("./routes/sessionRoutes.cjs");
 const { createMediaRoutes } = require("./routes/mediaRoutes.cjs");
+const { AudiusService } = require("./services/audiusService.cjs");
+const { createMusicController } = require("./controllers/musicController.cjs");
+const { createMusicRoutes } = require("./routes/musicRoutes.cjs");
 
-function createApp({ sessionManager, io, uploadDir, corsOptions = {}, getPort }) {
+function createApp({ sessionManager, io, uploadDir, corsOptions = {}, getPort, audiusService = null }) {
   const app = express();
   app.set("trust proxy", 1);
+
+  // Initialize Audius Service & Music Controller
+  const resolvedAudiusService = audiusService || new AudiusService();
+  const musicController = createMusicController({ audiusService: resolvedAudiusService });
 
   // 1. Centralized CORS middleware
   const expressCors = cors(createExpressCorsOptions(corsOptions));
@@ -35,6 +42,9 @@ function createApp({ sessionManager, io, uploadDir, corsOptions = {}, getPort })
 
   // 5. Cloudinary Media Routes
   app.use("/api/media", createMediaRoutes());
+
+  // 6. Audius Online Music Discovery & Streaming Routes
+  app.use("/api/music", createMusicRoutes({ musicController }));
 
   // 6. Serve static files from Vite's frontend/dist directory if it exists
   const candidateDistPaths = [
