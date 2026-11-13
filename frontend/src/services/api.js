@@ -244,6 +244,72 @@ export const api = {
   },
 
   /* ========================================================================
+     SESSION QUEUE API
+     ======================================================================== */
+
+  /**
+   * Fetch current queue of a session.
+   */
+  async getSessionQueue(sessionId, baseUrl) {
+    return await request(`/api/sessions/${encodeURIComponent(sessionId)}/queue`, { baseUrl });
+  },
+
+  /**
+   * Add a track to the session queue.
+   */
+  async addToSessionQueue(sessionId, track, baseUrl) {
+    return await request(`/api/sessions/${encodeURIComponent(sessionId)}/queue`, {
+      method: "POST",
+      baseUrl,
+      body: JSON.stringify({ track }),
+    });
+  },
+
+  /**
+   * Remove an item from the session queue.
+   */
+  async removeFromSessionQueue(sessionId, queueId, baseUrl) {
+    return await request(
+      `/api/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(queueId)}`,
+      {
+        method: "DELETE",
+        baseUrl,
+      }
+    );
+  },
+
+  /**
+   * Reorder items in the session queue.
+   */
+  async reorderSessionQueue(sessionId, fromIndex, toIndex, baseUrl) {
+    return await request(`/api/sessions/${encodeURIComponent(sessionId)}/queue/reorder`, {
+      method: "PUT",
+      baseUrl,
+      body: JSON.stringify({ fromIndex, toIndex }),
+    });
+  },
+
+  /**
+   * Pop and play the next item in the session queue.
+   */
+  async playNextInSessionQueue(sessionId, baseUrl) {
+    return await request(`/api/sessions/${encodeURIComponent(sessionId)}/queue/next`, {
+      method: "POST",
+      baseUrl,
+    });
+  },
+
+  /**
+   * Clear all items from the session queue.
+   */
+  async clearSessionQueue(sessionId, baseUrl) {
+    return await request(`/api/sessions/${encodeURIComponent(sessionId)}/queue`, {
+      method: "DELETE",
+      baseUrl,
+    });
+  },
+
+  /* ========================================================================
      ONLINE MUSIC & AUDIUS API
      ======================================================================== */
 

@@ -53,6 +53,7 @@ function createSyncServer(options = {}) {
     uploadDir,
     corsOptions: options,
     getPort: () => actualPort,
+    userLibraryService: options.userLibraryService,
   });
 
   // Attach app directly to HTTP Server

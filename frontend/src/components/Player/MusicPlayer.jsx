@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import PlayerControls from "./PlayerControls";
 import ProgressBar from "./ProgressBar";
 import { formatTime } from "../../utils/formatTime";
+import userLibrary from "../../services/userLibraryService";
 
 export function MusicPlayer({
   currentSong,
@@ -36,6 +37,11 @@ export function MusicPlayer({
   onClearQueue,
 }) {
   const [showQueue, setShowQueue] = useState(false);
+  const [, setLibrarySnapshot] = useState(() => userLibrary.getSnapshot());
+
+  useEffect(() => {
+    return userLibrary.subscribe(setLibrarySnapshot);
+  }, []);
 
   const displayTitle = currentSong?.name || currentSong?.title || sharedTrack?.title || "Nothing playing";
   const displayArtist = currentSong ? (currentSong.artist || "Unknown Artist") : (sharedTrack ? (sharedTrack.artist || "Unknown Artist") : "Select a song");
@@ -43,6 +49,9 @@ export function MusicPlayer({
   const effectiveDuration = duration || sharedTrack?.duration || 0;
   const artworkUrl = currentSong?.artwork || sharedTrack?.artwork || null;
   const isOnline = currentSong?.source === "audius" || sharedTrack?.source === "audius";
+
+  const activeTrack = currentSong || sharedTrack;
+  const isLiked = activeTrack ? userLibrary.isLiked(activeTrack.id || activeTrack.streamUrl) : false;
 
   return (
     <section className="player" aria-label="Audio Player">
@@ -88,6 +97,18 @@ export function MusicPlayer({
           </div>
           <span title={displayArtist}>{displayArtist}</span>
         </div>
+
+        {activeTrack && (
+          <button
+            type="button"
+            className={`player-heart-btn ${isLiked ? "liked" : ""}`}
+            onClick={() => userLibrary.toggleLike(activeTrack)}
+            title={isLiked ? "Unlike" : "Like"}
+            aria-label={isLiked ? "Unlike song" : "Like song"}
+          >
+            {isLiked ? "❤️" : "🤍"}
+          </button>
+        )}
       </div>
 
       {/* Center Controls & Progress */}

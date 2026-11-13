@@ -278,6 +278,95 @@ function createSessionController({ sessionManager, io, getPort }) {
 
       res.json({ success: true, removed: result.removedParticipant });
     },
+
+    // Get shared queue
+    getQueue: (req, res) => {
+      const sessionId = req.params.sessionId.toUpperCase().trim();
+      const session = sessionManager.getSession(sessionId);
+      if (!session) return res.status(404).json({ error: "Session not found." });
+      res.json({ success: true, queue: session.queue || [] });
+    },
+
+    // Add track to shared queue
+    addToQueue: (req, res) => {
+      const sessionId = req.params.sessionId.toUpperCase().trim();
+      const hostToken = req.headers["x-host-token"] || req.body?.hostToken;
+      const { track, addedByName } = req.body || {};
+
+      if (!track) return res.status(400).json({ error: "Track data required." });
+
+      const result = sessionManager.addToQueue(sessionId, hostToken, track, addedByName);
+      if (!result.success) return res.status(403).json({ error: result.error });
+
+      io.to(`session_${sessionId}`).emit("queue-updated", { queue: result.queue });
+      io.to(`session_${sessionId}`).emit("session-updated", sessionManager.getPublicState(sessionId));
+
+      res.status(201).json(result);
+    },
+
+    // Remove track from shared queue
+    removeFromQueue: (req, res) => {
+      const sessionId = req.params.sessionId.toUpperCase().trim();
+      const hostToken = req.headers["x-host-token"] || req.body?.hostToken;
+      const { queueId } = req.params;
+
+      const result = sessionManager.removeFromQueue(sessionId, hostToken, queueId);
+      if (!result.success) return res.status(403).json({ error: result.error });
+
+      io.to(`session_${sessionId}`).emit("queue-updated", { queue: result.queue });
+      io.to(`session_${sessionId}`).emit("session-updated", sessionManager.getPublicState(sessionId));
+
+      res.json(result);
+    },
+
+    // Reorder tracks in shared queue
+    reorderQueue: (req, res) => {
+      const sessionId = req.params.sessionId.toUpperCase().trim();
+      const hostToken = req.headers["x-host-token"] || req.body?.hostToken;
+      const { fromIndex, toIndex } = req.body || {};
+
+      const result = sessionManager.reorderQueue(sessionId, hostToken, fromIndex, toIndex);
+      if (!result.success) return res.status(400).json({ error: result.error });
+
+      io.to(`session_${sessionId}`).emit("queue-updated", { queue: result.queue });
+      io.to(`session_${sessionId}`).emit("session-updated", sessionManager.getPublicState(sessionId));
+
+      res.json(result);
+    },
+
+    // Play next track in shared queue
+    playNextInQueue: (req, res) => {
+      const sessionId = req.params.sessionId.toUpperCase().trim();
+      const hostToken = req.headers["x-host-token"] || req.body?.hostToken;
+
+      const result = sessionManager.playNextInQueue(sessionId, hostToken);
+      if (!result.success) return res.status(400).json({ error: result.error });
+
+      const downloadUrl = result.track.streamUrl || `/api/sessions/${sessionId}/track?v=${result.track.version}`;
+
+      io.to(`session_${sessionId}`).emit("track-published", {
+        track: result.track,
+        downloadUrl,
+      });
+      io.to(`session_${sessionId}`).emit("queue-updated", { queue: result.queue });
+      io.to(`session_${sessionId}`).emit("session-updated", sessionManager.getPublicState(sessionId));
+
+      res.json(result);
+    },
+
+    // Clear shared queue
+    clearQueue: (req, res) => {
+      const sessionId = req.params.sessionId.toUpperCase().trim();
+      const hostToken = req.headers["x-host-token"] || req.body?.hostToken;
+
+      const result = sessionManager.clearQueue(sessionId, hostToken);
+      if (!result.success) return res.status(403).json({ error: result.error });
+
+      io.to(`session_${sessionId}`).emit("queue-updated", { queue: [] });
+      io.to(`session_${sessionId}`).emit("session-updated", sessionManager.getPublicState(sessionId));
+
+      res.json(result);
+    },
   };
 }
 

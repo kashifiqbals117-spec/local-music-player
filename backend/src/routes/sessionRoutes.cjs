@@ -13,6 +13,12 @@ function createSessionRoutes({ sessionController, audioUpload }) {
   router.get("/:sessionId/qr", sessionController.getQrCode);
   router.post("/:sessionId/track", audioUpload.single("audio"), sessionController.setTrack);
   router.get("/:sessionId/track", sessionController.streamTrack);
+  router.get("/:sessionId/queue", sessionController.getQueue);
+  router.post("/:sessionId/queue", sessionController.addToQueue);
+  router.delete("/:sessionId/queue/:queueId", sessionController.removeFromQueue);
+  router.put("/:sessionId/queue/reorder", sessionController.reorderQueue);
+  router.post("/:sessionId/queue/next", sessionController.playNextInQueue);
+  router.delete("/:sessionId/queue", sessionController.clearQueue);
   router.delete("/:sessionId/participants/:participantId", sessionController.removeParticipant);
 
   return router;

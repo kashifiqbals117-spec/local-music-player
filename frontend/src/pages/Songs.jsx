@@ -11,6 +11,9 @@ export function Songs({
   onPlaySong,
   onAddSongs,
   onAddFolder,
+  onAddToQueue,
+  onAddToSessionQueue,
+  isSessionActive = false,
   searchQuery = "",
   onSearchChange,
   sortBy = "title",
@@ -74,6 +77,9 @@ export function Songs({
               currentSong={currentSong}
               isPlaying={isPlaying}
               onPlaySong={onPlaySong}
+              onAddToQueue={onAddToQueue}
+              onAddToSessionQueue={onAddToSessionQueue}
+              isSessionActive={isSessionActive}
               searchQuery={searchQuery}
               onClearSearch={() => onSearchChange("")}
             />

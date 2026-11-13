@@ -52,6 +52,7 @@ class SessionManager {
       participants: new Map(),
       currentTrack: null,
       trackVersion: 0,
+      queue: [],
       playback: {
         state: "paused", // 'playing' | 'paused'
         position: 0,
@@ -397,6 +398,140 @@ class SessionManager {
   }
 
   /**
+   * Add a track to the session's shared queue.
+   * @param {string} sessionId
+   * @param {string} hostToken
+   * @param {Object} track
+   * @param {string} [addedByName='Host']
+   * @returns {{ success: boolean, queue?: Array, item?: Object, error?: string }}
+   */
+  addToQueue(sessionId, hostToken, track, addedByName = "Host") {
+    if (!this.isHostAuthorized(sessionId, hostToken)) {
+      return { success: false, error: "Unauthorized: host privileges required to manage queue." };
+    }
+
+    const session = this.getSession(sessionId);
+    if (!session) return { success: false, error: "Session not found." };
+    if (!session.queue) session.queue = [];
+
+    const isOnline = track.source === "audius" || Boolean(track.streamUrl);
+    const queueItem = {
+      queueId: randomUUID(),
+      id: track.id || randomUUID(),
+      title: track.title || track.name || "Untitled Track",
+      artist: track.artist || "Unknown Artist",
+      album: track.album || "",
+      duration: Number(track.duration) || 0,
+      artwork: track.artwork || null,
+      streamUrl: track.streamUrl || (isOnline ? `/api/music/stream/${track.id}` : null),
+      filePath: track.filePath || null,
+      source: isOnline ? "audius" : (track.source || "local"),
+      addedBy: addedByName,
+      addedAt: Date.now(),
+    };
+
+    session.queue.push(queueItem);
+    return { success: true, queue: session.queue.slice(), item: queueItem };
+  }
+
+  /**
+   * Remove a track from the session queue by queueId.
+   * @param {string} sessionId
+   * @param {string} hostToken
+   * @param {string} queueId
+   * @returns {{ success: boolean, queue?: Array, error?: string }}
+   */
+  removeFromQueue(sessionId, hostToken, queueId) {
+    if (!this.isHostAuthorized(sessionId, hostToken)) {
+      return { success: false, error: "Unauthorized: host privileges required." };
+    }
+
+    const session = this.getSession(sessionId);
+    if (!session) return { success: false, error: "Session not found." };
+
+    session.queue = (session.queue || []).filter((item) => item.queueId !== queueId);
+    return { success: true, queue: session.queue.slice() };
+  }
+
+  /**
+   * Reorder items within the shared queue.
+   * @param {string} sessionId
+   * @param {string} hostToken
+   * @param {number} fromIndex
+   * @param {number} toIndex
+   * @returns {{ success: boolean, queue?: Array, error?: string }}
+   */
+  reorderQueue(sessionId, hostToken, fromIndex, toIndex) {
+    if (!this.isHostAuthorized(sessionId, hostToken)) {
+      return { success: false, error: "Unauthorized: host privileges required." };
+    }
+
+    const session = this.getSession(sessionId);
+    if (!session || !session.queue) return { success: false, error: "Session or queue not found." };
+
+    if (
+      fromIndex < 0 ||
+      fromIndex >= session.queue.length ||
+      toIndex < 0 ||
+      toIndex >= session.queue.length
+    ) {
+      return { success: false, error: "Invalid queue indices." };
+    }
+
+    const [moved] = session.queue.splice(fromIndex, 1);
+    session.queue.splice(toIndex, 0, moved);
+    return { success: true, queue: session.queue.slice() };
+  }
+
+  /**
+   * Play the next track in the queue, making it currentTrack and removing it from queue.
+   * @param {string} sessionId
+   * @param {string} hostToken
+   * @returns {{ success: boolean, track?: Object, queue?: Array, error?: string }}
+   */
+  playNextInQueue(sessionId, hostToken) {
+    if (!this.isHostAuthorized(sessionId, hostToken)) {
+      return { success: false, error: "Unauthorized: host privileges required." };
+    }
+
+    const session = this.getSession(sessionId);
+    if (!session) return { success: false, error: "Session not found." };
+    if (!session.queue || session.queue.length === 0) {
+      return { success: false, error: "Queue is empty." };
+    }
+
+    const nextTrack = session.queue.shift();
+    const trackResult = this.setTrack(sessionId, hostToken, nextTrack);
+    if (!trackResult.success) {
+      return trackResult;
+    }
+
+    return {
+      success: true,
+      track: trackResult.track,
+      queue: session.queue.slice(),
+    };
+  }
+
+  /**
+   * Clear all tracks from the session queue.
+   * @param {string} sessionId
+   * @param {string} hostToken
+   * @returns {{ success: boolean, queue?: Array, error?: string }}
+   */
+  clearQueue(sessionId, hostToken) {
+    if (!this.isHostAuthorized(sessionId, hostToken)) {
+      return { success: false, error: "Unauthorized: host privileges required." };
+    }
+
+    const session = this.getSession(sessionId);
+    if (!session) return { success: false, error: "Session not found." };
+
+    session.queue = [];
+    return { success: true, queue: [] };
+  }
+
+  /**
    * Update playback state (play, pause, seek).
    * @param {string} sessionId
    * @param {string} hostToken
@@ -679,6 +814,7 @@ class SessionManager {
       createdAt: session.createdAt,
       participantCount: participants.filter((p) => p.connected).length,
       participants,
+      queue: (session.queue || []).slice(),
       currentTrack: session.currentTrack
         ? {
             id: session.currentTrack.id,

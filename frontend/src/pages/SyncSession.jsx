@@ -38,6 +38,12 @@ export function SyncSession({
     playbackDiagnostics,
     autoplayBlocked,
     unlockAudio,
+    sessionQueue = [],
+    addToSessionQueue,
+    removeFromSessionQueue,
+    reorderSessionQueue,
+    playNextInSessionQueue,
+    clearSessionQueue,
   } = syncSession;
 
   // Local server management (Mode B)
@@ -526,6 +532,112 @@ export function SyncSession({
                   )}
                 </div>
 
+                {/* Shared Session Queue Card */}
+                <div className="sync-card shared-queue-card">
+                  <div className="shared-queue-header">
+                    <div>
+                      <h3>Shared Session Queue ({sessionQueue.length})</h3>
+                      <p className="muted">Shared upcoming playlist synchronized across all devices</p>
+                    </div>
+
+                    {hostToken && sessionQueue.length > 0 && (
+                      <div className="queue-header-actions">
+                        <button
+                          type="button"
+                          className="add-button"
+                          onClick={() => playNextInSessionQueue && playNextInSessionQueue()}
+                          title="Pop and play next track across all devices"
+                        >
+                          ▶ Play Next
+                        </button>
+                        <button
+                          type="button"
+                          className="folder-button"
+                          onClick={() => clearSessionQueue && clearSessionQueue()}
+                          title="Clear shared queue"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {sessionQueue.length === 0 ? (
+                    <div className="empty-queue-hint">
+                      <p className="muted">The shared queue is currently empty.</p>
+                      <span className="muted-sub">
+                        Anyone in this room can add songs from the Songs or Online Music tabs to keep playback rolling!
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="session-queue-list">
+                      {sessionQueue.map((item, index) => (
+                        <div key={item.queueId || index} className="session-queue-item">
+                          <span className="queue-idx">{index + 1}</span>
+                          <div className="queue-art">
+                            {item.artwork ? (
+                              <img src={item.artwork} alt="" />
+                            ) : (
+                              <span>{item.source === "audius" ? "🌐" : "🎵"}</span>
+                            )}
+                          </div>
+                          <div className="queue-item-meta">
+                            <strong>{item.title}</strong>
+                            <span className="queue-artist-sub">{item.artist || "Unknown Artist"}</span>
+                            <span className="queue-added-by">Added by {item.addedBy || "Host"}</span>
+                          </div>
+
+                          <div className="queue-item-actions">
+                            {hostToken && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="queue-reorder-btn"
+                                  disabled={index === 0}
+                                  onClick={() => reorderSessionQueue && reorderSessionQueue(index, index - 1)}
+                                  title="Move Up"
+                                >
+                                  ▲
+                                </button>
+                                <button
+                                  type="button"
+                                  className="queue-reorder-btn"
+                                  disabled={index === sessionQueue.length - 1}
+                                  onClick={() => reorderSessionQueue && reorderSessionQueue(index, index + 1)}
+                                  title="Move Down"
+                                >
+                                  ▼
+                                </button>
+                              </>
+                            )}
+                            <button
+                              type="button"
+                              className="queue-remove-btn"
+                              onClick={() => removeFromSessionQueue && removeFromSessionQueue(item.queueId)}
+                              title="Remove from queue"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Quick Add Current Song button */}
+                  {currentSong && (
+                    <div className="quick-add-queue-row">
+                      <button
+                        type="button"
+                        className="quick-add-btn"
+                        onClick={() => addToSessionQueue && addToSessionQueue(currentSong)}
+                      >
+                        ➕ Add Currently Loaded Song to Queue
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 {/* Dedicated Share Music Card */}
                 {hostToken ? (
                   <div className="sync-card share-music-card">
@@ -627,6 +739,22 @@ export function SyncSession({
                     <p className="muted">Scan with any phone camera to join instantly in browser:</p>
                     <img src={qrCodeUrl} alt="Session QR Code" className="qr-image" />
                     <code className="session-url-text">Session ID: {session.id}</code>
+
+                    <button
+                      type="button"
+                      className="add-button copy-link-btn"
+                      style={{ marginTop: "0.75rem", width: "100%" }}
+                      onClick={() => {
+                        const url =
+                          session.mode !== "online" && localServerStatus.addresses[0]
+                            ? `http://${localServerStatus.addresses[0]}:${localServerStatus.port || 3001}/?session=${session.id}`
+                            : `https://local-music-player-2k9z.vercel.app/?session=${session.id}`;
+                        navigator.clipboard?.writeText(url);
+                        alert(`Invite link copied to clipboard:\n${url}`);
+                      }}
+                    >
+                      📋 Copy Invite Link
+                    </button>
                   </div>
                 )}
               </div>

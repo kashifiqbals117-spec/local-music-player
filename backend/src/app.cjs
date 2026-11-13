@@ -15,14 +15,31 @@ const { createMediaRoutes } = require("./routes/mediaRoutes.cjs");
 const { AudiusService } = require("./services/audiusService.cjs");
 const { createMusicController } = require("./controllers/musicController.cjs");
 const { createMusicRoutes } = require("./routes/musicRoutes.cjs");
+const UserLibraryService = require("./services/userLibraryService.cjs");
+const { createUserLibraryController } = require("./controllers/userLibraryController.cjs");
+const { createUserLibraryRoutes } = require("./routes/userLibraryRoutes.cjs");
 
-function createApp({ sessionManager, io, uploadDir, corsOptions = {}, getPort, audiusService = null }) {
+function createApp({
+  sessionManager,
+  io,
+  uploadDir,
+  corsOptions = {},
+  getPort,
+  audiusService = null,
+  userLibraryService = null,
+}) {
   const app = express();
   app.set("trust proxy", 1);
 
   // Initialize Audius Service & Music Controller
   const resolvedAudiusService = audiusService || new AudiusService();
   const musicController = createMusicController({ audiusService: resolvedAudiusService });
+
+  // Initialize User Library Service & Controller
+  const resolvedUserLibraryService = userLibraryService || new UserLibraryService();
+  const userLibraryController = createUserLibraryController({
+    userLibraryService: resolvedUserLibraryService,
+  });
 
   // 1. Centralized CORS middleware
   const expressCors = cors(createExpressCorsOptions(corsOptions));
@@ -45,6 +62,9 @@ function createApp({ sessionManager, io, uploadDir, corsOptions = {}, getPort, a
 
   // 6. Audius Online Music Discovery & Streaming Routes
   app.use("/api/music", createMusicRoutes({ musicController }));
+
+  // 7. Online User Library Persistence Routes (Liked Songs, Playlists, History, Sync)
+  app.use("/api/user", createUserLibraryRoutes({ userLibraryController }));
 
   // 6. Serve static files from Vite's frontend/dist directory if it exists
   const candidateDistPaths = [

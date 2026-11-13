@@ -340,6 +340,86 @@ function setupSyncSocket({ io, sessionManager, resyncTimers = new Map() }) {
       );
     });
 
+    /* ========================================================================
+       SHARED QUEUE MANAGEMENT (OFFLINE & ONLINE SESSIONS)
+       ======================================================================== */
+
+    // Add track to shared queue
+    socket.on("queue-add", ({ sessionId, hostToken, track, addedByName }, callback) => {
+      const targetSession = sessionId || currentSessionId;
+      if (!targetSession) return callback && callback({ success: false, error: "Missing sessionId." });
+
+      const res = sessionManager.addToQueue(targetSession, hostToken, track, addedByName);
+      if (!res.success) return callback && callback(res);
+
+      const room = `session_${targetSession}`;
+      io.to(room).emit("queue-updated", { queue: res.queue });
+      io.to(room).emit("session-updated", sessionManager.getPublicState(targetSession));
+      if (callback) callback(res);
+    });
+
+    // Remove track from shared queue
+    socket.on("queue-remove", ({ sessionId, hostToken, queueId }, callback) => {
+      const targetSession = sessionId || currentSessionId;
+      if (!targetSession) return callback && callback({ success: false, error: "Missing sessionId." });
+
+      const res = sessionManager.removeFromQueue(targetSession, hostToken, queueId);
+      if (!res.success) return callback && callback(res);
+
+      const room = `session_${targetSession}`;
+      io.to(room).emit("queue-updated", { queue: res.queue });
+      io.to(room).emit("session-updated", sessionManager.getPublicState(targetSession));
+      if (callback) callback(res);
+    });
+
+    // Reorder tracks in shared queue
+    socket.on("queue-reorder", ({ sessionId, hostToken, fromIndex, toIndex }, callback) => {
+      const targetSession = sessionId || currentSessionId;
+      if (!targetSession) return callback && callback({ success: false, error: "Missing sessionId." });
+
+      const res = sessionManager.reorderQueue(targetSession, hostToken, fromIndex, toIndex);
+      if (!res.success) return callback && callback(res);
+
+      const room = `session_${targetSession}`;
+      io.to(room).emit("queue-updated", { queue: res.queue });
+      io.to(room).emit("session-updated", sessionManager.getPublicState(targetSession));
+      if (callback) callback(res);
+    });
+
+    // Play next track from shared queue
+    socket.on("queue-play-next", ({ sessionId, hostToken }, callback) => {
+      const targetSession = sessionId || currentSessionId;
+      if (!targetSession) return callback && callback({ success: false, error: "Missing sessionId." });
+
+      const res = sessionManager.playNextInQueue(targetSession, hostToken);
+      if (!res.success) return callback && callback(res);
+
+      const room = `session_${targetSession}`;
+      const downloadUrl = res.track.streamUrl || `/api/sessions/${targetSession}/track?v=${res.track.version}`;
+
+      io.to(room).emit("track-published", {
+        track: res.track,
+        downloadUrl,
+      });
+      io.to(room).emit("queue-updated", { queue: res.queue });
+      io.to(room).emit("session-updated", sessionManager.getPublicState(targetSession));
+      if (callback) callback(res);
+    });
+
+    // Clear shared queue
+    socket.on("queue-clear", ({ sessionId, hostToken }, callback) => {
+      const targetSession = sessionId || currentSessionId;
+      if (!targetSession) return callback && callback({ success: false, error: "Missing sessionId." });
+
+      const res = sessionManager.clearQueue(targetSession, hostToken);
+      if (!res.success) return callback && callback(res);
+
+      const room = `session_${targetSession}`;
+      io.to(room).emit("queue-updated", { queue: [] });
+      io.to(room).emit("session-updated", sessionManager.getPublicState(targetSession));
+      if (callback) callback(res);
+    });
+
     // Disconnection
     socket.on("disconnect", () => {
       const disc = sessionManager.handleSocketDisconnect(socket.id);

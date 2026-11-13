@@ -5,6 +5,9 @@ export function SongList({
   currentSong,
   isPlaying = false,
   onPlaySong,
+  onAddToQueue,
+  onAddToSessionQueue,
+  isSessionActive = false,
   searchQuery = "",
   onClearSearch,
 }) {
@@ -40,6 +43,9 @@ export function SongList({
           isActive={currentSong?.path === song.path}
           isPlaying={isPlaying}
           onPlay={onPlaySong}
+          onAddToQueue={onAddToQueue}
+          onAddToSessionQueue={onAddToSessionQueue}
+          isSessionActive={isSessionActive}
         />
       ))}
     </div>

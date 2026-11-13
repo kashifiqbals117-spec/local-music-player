@@ -147,6 +147,7 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
   const [isTransferring, setIsTransferring] = useState(false);
   const [transferError, setTransferError] = useState(null);
   const [isTrackVerified, setIsTrackVerified] = useState(false);
+  const [sessionQueue, setSessionQueue] = useState([]);
 
   // Diagnostics and Autoplay states
   const [playbackDiagnostics, setPlaybackDiagnostics] = useState(null);
@@ -459,6 +460,9 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
       }, async (res) => {
         if (res?.success) {
           setSession(res.session);
+          if (res.session?.queue) {
+            setSessionQueue(res.session.queue);
+          }
           setMyParticipant(res.participant);
           if (res.clientToken) {
             localStorage.setItem(`syncbeat_part_${cleanSessionId}`, res.participant.id);
@@ -484,6 +488,9 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
 
     sock.on("session-updated", async (updatedState) => {
       setSession(updatedState);
+      if (updatedState?.queue) {
+        setSessionQueue(updatedState.queue);
+      }
       // If a track is present on the session and we haven't loaded this track version yet, download it
       if (
         updatedState?.currentTrack &&
@@ -496,6 +503,13 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
           track: updatedState.currentTrack,
           downloadUrl: `/api/sessions/${cleanSessionId}/track?v=${updatedState.currentTrack.version || 0}`,
         });
+      }
+    });
+
+    // Handle shared queue updates
+    sock.on("queue-updated", ({ queue }) => {
+      if (Array.isArray(queue)) {
+        setSessionQueue(queue);
       }
     });
 
@@ -951,7 +965,32 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
       }
 
       // Local file sharing
-      if (musicService.isElectron()) {
+      const isOnlineSession =
+        session?.mode === "online" ||
+        !musicService.isElectron() ||
+        Boolean(serverUrlRef.current && !serverUrlRef.current.includes("localhost"));
+
+      if (isOnlineSession && musicService.isElectron()) {
+        // Online room: Upload local audio buffer to backend so remote participants can stream it
+        const fileRes = await musicService.readMusicFile(song.path);
+        if (!fileRes?.success || !fileRes.data) {
+          throw new Error(fileRes?.error || "Could not read local audio file for upload.");
+        }
+
+        const blob = new Blob([fileRes.data], { type: "audio/mpeg" });
+        const formData = new FormData();
+        formData.append("audio", blob, `${songTitle}.mp3`);
+        formData.append("title", songTitle);
+        formData.append("artist", song.artist || "Unknown Artist");
+        formData.append("album", song.album || "");
+        formData.append("duration", String(song.duration || 0));
+
+        const data = await api.setTrack(session.id, hostToken, formData, serverUrlRef.current);
+        const msg = `"${songTitle}" uploaded & shared with online session!`;
+        setShareSuccess(msg);
+        setTimeout(() => setShareSuccess(null), 5000);
+        return { success: true, track: data.track };
+      } else if (musicService.isElectron()) {
         const res = await musicService.shareSongToSession({
           sessionId: session.id,
           hostToken,
@@ -998,6 +1037,115 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
       setIsSharingTrack(false);
     }
   }, [session, hostToken]);
+
+  /* ========================================================================
+     SHARED QUEUE ACTIONS (OFFLINE & ONLINE SESSIONS)
+     ======================================================================== */
+
+  const addToSessionQueue = useCallback(async (track) => {
+    if (!track || !session?.id) return { success: false, error: "No active session or track." };
+    const trackPayload = {
+      id: track.id || track.streamUrl || `trk_${Date.now()}`,
+      title: track.title || track.name || "Untitled Track",
+      artist: track.artist || "Unknown Artist",
+      album: track.album || "",
+      duration: Number(track.duration) || 0,
+      artwork: track.artwork || null,
+      streamUrl: track.streamUrl || (track.id ? `/api/music/stream/${track.id}` : null),
+      path: track.path || null,
+      source: track.source || (track.path ? "local" : "audius"),
+    };
+
+    if (socket && socket.connected) {
+      return new Promise((resolve) => {
+        socket.emit("queue-add", {
+          sessionId: session.id,
+          hostToken,
+          track: trackPayload,
+          addedByName: myParticipant?.name || "Host",
+        }, (res) => {
+          if (res?.success) {
+            if (res.queue) setSessionQueue(res.queue);
+            resolve({ success: true, item: res.item, queue: res.queue });
+          } else {
+            resolve({ success: false, error: res?.error || "Failed to add to queue." });
+          }
+        });
+      });
+    } else {
+      try {
+        const res = await api.addToSessionQueue(session.id, trackPayload, serverUrlRef.current);
+        if (res?.queue) setSessionQueue(res.queue);
+        return { success: true, item: res.item, queue: res.queue };
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    }
+  }, [socket, session, hostToken, myParticipant?.name]);
+
+  const removeFromSessionQueue = useCallback(async (queueId) => {
+    if (!session?.id || !queueId) return;
+    if (socket && socket.connected) {
+      socket.emit("queue-remove", { sessionId: session.id, hostToken, queueId }, (res) => {
+        if (res?.queue) setSessionQueue(res.queue);
+      });
+    } else {
+      try {
+        const res = await api.removeFromSessionQueue(session.id, queueId, serverUrlRef.current);
+        if (res?.queue) setSessionQueue(res.queue);
+      } catch (err) {
+        console.warn("Failed to remove from queue:", err);
+      }
+    }
+  }, [socket, session, hostToken]);
+
+  const reorderSessionQueue = useCallback(async (fromIndex, toIndex) => {
+    if (!session?.id) return;
+    if (socket && socket.connected) {
+      socket.emit("queue-reorder", { sessionId: session.id, hostToken, fromIndex, toIndex }, (res) => {
+        if (res?.queue) setSessionQueue(res.queue);
+      });
+    } else {
+      try {
+        const res = await api.reorderSessionQueue(session.id, fromIndex, toIndex, serverUrlRef.current);
+        if (res?.queue) setSessionQueue(res.queue);
+      } catch (err) {
+        console.warn("Failed to reorder queue:", err);
+      }
+    }
+  }, [socket, session, hostToken]);
+
+  const playNextInSessionQueue = useCallback(async () => {
+    if (!session?.id || !hostToken) return;
+    if (socket && socket.connected) {
+      socket.emit("queue-play-next", { sessionId: session.id, hostToken }, (res) => {
+        if (res?.queue) setSessionQueue(res.queue);
+      });
+    } else {
+      try {
+        const res = await api.playNextInSessionQueue(session.id, serverUrlRef.current);
+        if (res?.queue) setSessionQueue(res.queue);
+      } catch (err) {
+        console.warn("Failed to play next in queue:", err);
+      }
+    }
+  }, [socket, session, hostToken]);
+
+  const clearSessionQueue = useCallback(async () => {
+    if (!session?.id || !hostToken) return;
+    if (socket && socket.connected) {
+      socket.emit("queue-clear", { sessionId: session.id, hostToken }, (res) => {
+        if (res?.queue) setSessionQueue(res.queue);
+      });
+    } else {
+      try {
+        const res = await api.clearSessionQueue(session.id, serverUrlRef.current);
+        if (res?.queue) setSessionQueue(res.queue);
+      } catch (err) {
+        console.warn("Failed to clear queue:", err);
+      }
+    }
+  }, [socket, session, hostToken]);
 
   // Unlock audio context for mobile browsers that block programmatic playback
   const unlockAudio = useCallback(async () => {
@@ -1084,6 +1232,12 @@ export function useSyncSession({ audioRef, onLocalPlay, onLocalPause, onLocalSee
     playbackDiagnostics,
     autoplayBlocked,
     unlockAudio,
+    sessionQueue,
+    addToSessionQueue,
+    removeFromSessionQueue,
+    reorderSessionQueue,
+    playNextInSessionQueue,
+    clearSessionQueue,
   };
 }
 
